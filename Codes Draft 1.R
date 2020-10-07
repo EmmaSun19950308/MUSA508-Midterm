@@ -24,7 +24,7 @@ mapTheme <- function(base_size = 12) {
 plotTheme <- function(base_size = 12) {
   theme(
     text = element_text( color = "black"),
-    plot.title = element_text(size = 16,colour = "black"),
+    plot.title = element_text(color = "darkred", size=15, face="bold"),
     plot.subtitle = element_text(face="italic"),
     plot.caption = element_text(hjust=0),
     axis.ticks = element_blank(),
@@ -65,7 +65,7 @@ palette <- c('#feedde', '#fdbe85', '#fd8d3c', '#e6550d', '#a63603')
 
 
 # Data Wrangling
-dat <- st_read('/Users/penguin/Box Sync/GitHub/MUSA508-Midterm Project/studentsData.geojson')
+dat <- st_read('/Users/penguin/Box Sync/GitHub/MUSA508-Midterm/studentsData.geojson')
 miami.base <-st_read("https://opendata.arcgis.com/datasets/5ece0745e24b4617a49f2e098df8117f_0.geojson") %>%
   filter(NAME %in% c("MIAMI", "MIAMI BEACH"))
 
@@ -84,7 +84,8 @@ ggplot() +
        subtitle = '',
        caption = 'Figure 1.1') +
   mapTheme() + 
-  theme(plot.title = element_text(color = "darkred", size=15, face="bold")) 
+  plotTheme()
+   
 
 
   

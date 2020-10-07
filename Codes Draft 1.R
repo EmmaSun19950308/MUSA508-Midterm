@@ -8,7 +8,7 @@ library(mapview)
 mapTheme <- function(base_size = 12) {
   theme(
     text = element_text( color = "black"),
-    plot.title = element_text(size = 16,colour = "black"),
+    plot.title = element_text(size = 15,colour = "black"),
     plot.subtitle=element_text(face="italic"),
     plot.caption=element_text(hjust=0),
     axis.ticks = element_blank(),

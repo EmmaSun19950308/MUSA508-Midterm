@@ -107,6 +107,7 @@ bostonCrimes <- read.csv(file.path(data_src,"bostonCrimes.csv"))
 
 boston       <- read.csv(file.path(data_src,"bostonHousePriceData_clean.csv"))
 
+# with geometry variable
 boston.sf    <- boston %>% 
   st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, agr = "constant") %>%
   st_transform('ESRI:102286')
@@ -114,6 +115,7 @@ boston.sf    <- boston %>%
 nhoods <- 
   st_read("http://bostonopendata-boston.opendata.arcgis.com/datasets/3525b0ee6e6b427f9aab5d0a1d0a1a28_0.geojson") %>%
   st_transform('ESRI:102286')
+
 
 ```
 
@@ -164,7 +166,8 @@ boston.sf$crimes.Buffer =
     pull(counter)
 
 
-ggplot() + geom_sf(data = nhoods, fill = "grey40") +
+ggplot() + 
+  geom_sf(data = nhoods, fill = "grey40") +
   stat_density2d(data = data.frame(st_coordinates(bostonCrimes.sf)), 
                  aes(X, Y, fill = ..level.., alpha = ..level..),
                  size = 0.01, bins = 40, geom = 'polygon') +
@@ -172,6 +175,7 @@ ggplot() + geom_sf(data = nhoods, fill = "grey40") +
   scale_alpha(range = c(0.00, 0.35), guide = FALSE) +
   labs(title = "Density of Aggravated Assaults, Boston") +
   mapTheme()
+
 
 ## Nearest Neighbor Feature
 # 
@@ -185,6 +189,7 @@ boston.sf <-
       crime_nn3 = nn_function(st_c(boston.sf), st_c(bostonCrimes.sf), 3), 
       crime_nn4 = nn_function(st_c(boston.sf), st_c(bostonCrimes.sf), 4), 
       crime_nn5 = nn_function(st_c(boston.sf), st_c(bostonCrimes.sf), 5)) 
+
 
 ## Plot NN count over space - Should increase or decrease?
 boston.sf.plot <- boston.sf %>% 

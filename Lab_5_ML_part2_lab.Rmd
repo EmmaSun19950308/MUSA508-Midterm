@@ -1,5 +1,5 @@
 ---
-title: "Lab4_Spatial_ML_Part2"
+title: "Lab5_Spatial_ML_Part2"
 output:
   html_document:
     theme: flatly
@@ -284,6 +284,7 @@ map_preds <- boston.sf %>%
   left_join(cv_preds, by = "rowIndex") %>% 
   mutate(SalePrice.AbsError = abs(pred - SalePrice)) %>% 
   cbind(st_coordinates(.))
+
 # weird CRS fix to boston.sf
 st_crs(map_preds) <- st_crs(nhoods)
 

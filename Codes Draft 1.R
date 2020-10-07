@@ -3,6 +3,14 @@ library(sf)
 library(tidyverse)
 install.packages('mapview')
 library(mapview)
+library(spdep)
+library(caret)
+library(ckanr) # for opening data APIs built on CKAN technology
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot)
+library(jtools)     # for regression model plots
 
 # Identify functions
 mapTheme <- function(base_size = 12) {
@@ -62,6 +70,27 @@ q5 <- function(variable) {as.factor(ntile(variable, 5))}
 # Load hexadecimal color palette
 
 palette <- c('#feedde', '#fdbe85', '#fd8d3c', '#e6550d', '#a63603')
+
+# for calculating average nearest neighbor distance.
+
+nn_function <- function(measureFrom,measureTo,k) {
+  measureFrom_Matrix <- as.matrix(measureFrom)
+  measureTo_Matrix <- as.matrix(measureTo)
+  nn <-   
+    get.knnx(measureTo, measureFrom, k)$nn.dist
+  output <-
+    as.data.frame(nn) %>%
+    rownames_to_column(var = "thisPoint") %>%
+    gather(points, point_distance, V1:ncol(.)) %>%
+    arrange(as.numeric(thisPoint)) %>%
+    group_by(thisPoint) %>%
+    summarize(pointDistance = mean(point_distance)) %>%
+    arrange(as.numeric(thisPoint)) %>% 
+    dplyr::select(-thisPoint) %>%
+    pull() # pull() is similar to $. It's mostly useful because it looks a little nicer in pipes, it also works with remote data frames, and it can optionally name the output.
+  
+  return(output)  
+}
 
 
 # Data Wrangling

@@ -334,7 +334,7 @@ boston.test <-
 
 ```{r}
 k_nearest_neighbors = 5
-#prices
+# prices
 coords <- st_coordinates(boston.sf) 
 # k nearest neighbors
 neighborList <- knn2nb(knearneigh(coords, k_nearest_neighbors))

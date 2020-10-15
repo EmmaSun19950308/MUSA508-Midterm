@@ -1,0 +1,13 @@
+**Miami House Price and Internal Characteristics**: basic geometric dataset provided by the course in advance.
+
+**Miami Base Data**: geometric data containing the geographic information of Miami and Miami Beach. 
+
+**Miami Neighborhood Shapefiles**: digital geographic [dataset](https://hub.arcgis.com/datasets/2f54a0cbd67046f2bd100fb735176e6c_0) contains polygon features representing neighborhood areas within the City of Miami as well as Miami Beach, Florida. 
+
+**Census Data**: demographic variables from the ACS 2017 for census tracts in Miami-Dade County
+
+**Amenity Data**: compilatory data chosen for describing amenities and public service of Miami-Dade County. The datasets we chose encompasses crime rate, education opportunity, healthcare service and entertainment accessibility. See each dataset below:
+
+1. [**Sexual Predator**](https://gis-mdc.opendata.arcgis.com/datasets/sexual-predator/data): A point feature class of Sexual Offenders and Predators within Miami-Dade County that is used by the Sexual Offender/Predator Residence Search Internet application.
+
+2. [**Public School**](https://gis-mdc.opendata.arcgis.com/datasets/public-school): A point feature class of the Miami-Dade County Public Schools facilities.

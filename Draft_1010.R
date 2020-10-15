@@ -218,8 +218,6 @@ miami.hospital.sf <- miami.hospital %>%
 
 
 
-
-
 # ===========================================
 # Feature Engineering
 ## 1. Landmark
@@ -318,9 +316,15 @@ miami.test <- miami.sf %>%
 
 # summary(miami.test)
 
+# Below, all exploration will be done on miami.training
+
 # =====================================================================
+# DATA - 1
+# Briefly describe your methods for gather the data
+# 这个我在你的基础上我再写
+
 # DATA - 2
-# Table of summary statistics 
+## All potential features
 all.feature.list <- miami.training %>%
   dplyr:: select(-saleDate,-saleType,-saleQual,-saleYear,-Property.Address,
          -Year,-WVDB,-HEX,-GPAR,-County.2nd.HEX,-County.Senior,-County.LongTermSenior,
@@ -332,31 +336,42 @@ all.feature.list <- miami.training %>%
   st_drop_geometry()
 
 
-stargazer(all.feature.list, type = 'text')
+# stargazer(all.feature.list, type = 'text') # 这个你看看表哥啥样，丑不丑
 
-## 1. internal characteristics
+
+## 2.1 Feature: Internal Characteristics
 internal.feature.list <- all.feature.list %>%
   dplyr:: select(SalePrice, Land, Bldg, Total, Assessed,County.Taxable,City.Taxable,AdjustedSqFt,
                  LotSize, Bed, Bath, Stories, Units, LivingSqFt, ActualSqFt, Age,Age.effective,
-                 pool_house, patio_house) 
+                 pool_house, patio_house,) 
 
 stargazer(internal.feature.list, type = 'text')
-## 2. amenities/public services
+stargazer(internal.feature.list, type = 'html')
+stargazer(internal.feature.list, type = 'latex')
+# 三种你看看knit以后谁丑,丑的就不用他了。
+
+## 2.2 Feature: Amenities/Public Services
 amenity.feature.list <- all.feature.list %>%
   dplyr:: select(starts_with('landmark_'),starts_with('mall_'),starts_with('hospital_'),
-                 starts_with('college_'),starts_with('school_'),starts_with('hotel_')  ) 
+                 starts_with('college_'),starts_with('school_'),starts_with('hotel_'),
+                 pctTotalVacant, pctRenterOccupied, pctWhite,pctPoverty, MedRent ,MedHHInc)
 
-stargazer(amenity.feature.list, type = 'text')
+# stargazer(amenity.feature.list, type = 'text')
 
-## 3. spatial structure
+## 2.3 Spatial Structure: Neighborhood
 spatial.feature.list <- all.feature.list %>%
-  dplyr:: select(Property.City, Zoning,LABEL) 
+  dplyr:: select(LABEL) 
 
-stargazer(spatial.feature.list, type = 'latex')
+as.data.frame(table(spatial.feature.list)) %>%
+  rename(`Neighborhood List` = spatial.feature.list,
+         Number =Freq) %>%
+  kable(caption = 'Spatial Feature: Neighborhood') %>%
+  kable_styling("striped", full_width = F)
+
 
 
 # ============
-# DATA - 3
+# DATA - 3 Correlation Matrix
 miami.numericVars <- 
   select_if(all.feature.list, is.numeric) %>% 
   na.omit() 
@@ -367,10 +382,12 @@ ggcorrplot(
   colors = c("#25CB10", "white", "#FA7800"),
   type="lower",
   insig = "blank") +  
-  labs(title = "Correlation across numeric variables") 
+  labs(title = "Correlation across numeric variables\n",
+       caption = 'Figure DATA 3') +
+  plotTheme()
 
 # ============
-# DATA - 4 Scatter plot 
+# DATA - 4 Scatter plot  
 ## 1. Landmark Correlation 
 price.landmark.plot <-
   st_drop_geometry(miami.training) %>% 
@@ -381,7 +398,8 @@ price.landmark.plot <-
   geom_point(size = .5) + 
   geom_smooth(method = "lm", se=F, colour = "#FA7800") +
   facet_wrap(~Variable, nrow = 1, scales = "free") +
-  labs(title = "Price as a function of continuous variables") +
+  labs(title = "Price as a function of continuous variables\n",
+       caption = 'Figure DATA xxx') +
   plotTheme()
 
 price.landmark.plot
@@ -396,7 +414,8 @@ price.mall.plot <-
   geom_point(size = .5) + 
   geom_smooth(method = "lm", se=F, colour = "#FA7800") +
   facet_wrap(~Variable, nrow = 1, scales = "free") +
-  labs(title = "Price as a function of continuous variables") +
+  labs(title = "Price as a function of continuous variables\n",
+       caption = 'Figure DATA xxx') +
   plotTheme()
 
 price.mall.plot
@@ -411,7 +430,8 @@ price.sexual.plot <-
   geom_point(size = .5) + 
   geom_smooth(method = "lm", se=F, colour = "#FA7800") +
   facet_wrap(~Variable, nrow = 1, scales = "free") +
-  labs(title = "Price as a function of continuous variables") +
+  labs(title = "Price as a function of continuous variables\n",
+       caption = 'Figure DATA xxx') +
   plotTheme()
 
 price.sexual.plot
@@ -420,17 +440,16 @@ price.sexual.plot
 ## 4. House Internal characteristics
 price.house.plot <- 
   st_drop_geometry(miami.training) %>% 
-  dplyr::select(SalePrice, Land, Bldg, Total, Assessed,County.Taxable,City.Taxable,AdjustedSqFt,
-                LotSize, Bed, Bath, Stories, Units, LivingSqFt, ActualSqFt, Age,
-                pool_house, patio_house) %>%
-  filter(SalePrice <= 1000000, Age < 500) %>%
+  dplyr::select(SalePrice, pctTotalVacant, AdjustedSqFt, LotSize) %>%
+  filter(SalePrice <= 1000000) %>%
   gather(Variable, Value, -SalePrice) %>% 
   ggplot(aes(Value, SalePrice)) +
   geom_point(size = .5) + 
   geom_smooth(method = "lm", se=F, colour = "#FA7800") +
   facet_wrap(~Variable, ncol = 3, scales = "free") +
   plotTheme() + 
-  labs(title = "Price as a function of house internal characteristics variables") 
+  labs(title = "Price as a function of house internal characteristics variables\n",
+       caption = 'Figure DATA xxx') 
 
 price.house.plot
 
@@ -450,7 +469,7 @@ map.priceFt <- ggplot() +
                      name = "Price/ft^2") +
   labs(title = 'Sale Price Per Square Foot\n',
        subtitle = '',
-       caption = 'Figure 1.1') +
+       caption = 'Figure DATA 5') +
   mapTheme() + 
   plotTheme()
 
@@ -468,7 +487,8 @@ plot.landmark <- ggplot() +
                  size = 0.01, bins = 40, geom = 'polygon') +
   scale_fill_gradient(low = "#25CB10", high = "#FA7800", name = "Density") +
   scale_alpha(range = c(0.00, 0.35), guide = FALSE) +
-  labs(title = "Density of landmark Assaults, Miami") +
+  labs(title = "Density of landmark Assaults, Miami\n",
+       caption = 'Figure DATA xxx') +
   mapTheme()
 
 plot.landmark
@@ -481,7 +501,8 @@ plot.mall <- ggplot() +
                  size = 0.01, bins = 40, geom = 'polygon') +
   scale_fill_gradient(low = "#25CB10", high = "#FA7800", name = "Density") +
   scale_alpha(range = c(0.00, 0.35), guide = FALSE) +
-  labs(title = "Density of Shopping Malls, Miami") +
+  labs(title = "Density of Shopping Malls, Miami\n",
+       caption = 'Figure DATA xxx') +
   mapTheme()
 
 plot.mall
@@ -495,7 +516,8 @@ plot.sexual <- ggplot() +
                  size = 0.01, bins = 40, geom = 'polygon') +
   scale_fill_gradient(low = "#25CB10", high = "#FA7800", name = "Density") +
   scale_alpha(range = c(0.00, 0.35), guide = FALSE) +
-  labs(title = "Density of Sexual Assaults, Miami") +
+  labs(title = "Density of Sexual Assaults, Miami\n",
+       caption = 'Figure DATA xxx') +
   mapTheme()
 
 plot.sexual
@@ -503,34 +525,51 @@ plot.sexual
 # =====================================================================
 # MODEL BUILDING
 
-## First model: all internal, amenity features
+## First model: All internal features, amenity features
 M1 <- lm(SalePrice ~ ., data = st_drop_geometry(miami.training) %>% 
            dplyr::select(colnames(internal.feature.list), 
-                         colnames(amenity.feature.list)) 
-)
+                         colnames(amenity.feature.list)
+))
 
 summary(M1)
 
 ## Second model: 
-M2 <- lm(SalePrice ~ ., data = st_drop_geometry(miami.training) %>% 
-           dplyr::select(SalePrice, Land, Bldg, Assessed, County.Taxable,
-                         AdjustedSqFt, LotSize, Bed,
-                         Bath, ActualSqFt, Age, pool_house, 
-                         college_nn2, college_nn1,
-                         school_nn3, school_nn4, school_nn5) 
+M2_1 <- lm(SalePrice ~ ., data = st_drop_geometry(miami.training) %>% 
+           dplyr::select(# internal features
+                         SalePrice, Land, Bldg, Assessed, County.Taxable,
+                         AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                         # amenity features
+                         landmark_nn2, landmark_nn3, college_nn1,
+                         school_nn3, school_nn4, school_nn5,
+                         pctTotalVacant, pctRenterOccupied, MedRent, MedHHInc) 
 )
 
-summary(M2)
+summary(M2_1)
 
+M2_2 <- lm(SalePrice ~ ., data = st_drop_geometry(miami.training) %>% 
+             dplyr::select(# internal features
+               SalePrice, Land, Bldg, Assessed, County.Taxable,
+               AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+               # amenity features
+               college_nn1,
+               school_nn3, school_nn4, school_nn5,
+               pctTotalVacant, MedRent, MedHHInc) 
+)
+
+summary(M2_2)
+
+## Below is our baseline regression model
+m2 <- M2_2
 
 # ==============================================================
 # RESULT
+
 # 1. Split dataset
 set.seed(31357)
 
 # get index for training sample
 inTrain <- caret::createDataPartition(
-  y = miami.training$SalePrice, 
+  y = paste(miami.training$LABEL,miami.training$SalePrice ), 
   p = .60, list = FALSE)
 # split data into training and test
 model.miami.training <- miami.training[inTrain,] 
@@ -538,32 +577,39 @@ model.miami.test <- miami.training[-inTrain,]
 
 # 2. Table of model summary on my training set
 m2.training <- lm(SalePrice ~ ., data = st_drop_geometry(model.miami.training) %>% 
-           dplyr::select(SalePrice, Land, Bldg, Assessed, County.Taxable,
-                         AdjustedSqFt, LotSize, Bed,
-                         Bath, ActualSqFt, Age, pool_house, 
-                         college_nn2, college_nn1,
-                         school_nn3, school_nn4, school_nn5
+           dplyr::select(# internal features
+             SalePrice, Land, Bldg, Assessed, County.Taxable,
+             AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+             # amenity features
+             college_nn1,
+             school_nn3, school_nn4, school_nn5,
+             pctTotalVacant, MedRent, MedHHInc
            ) 
 )
 
 summary(m2.training)
 
-stargazer(m2.training , type = 'latex')
+stargazer(m2.training , type = 'latex') # 注意观察这个table长啥样！
 broom::glance(m2.training)
 
 
 # 3. MAE, MAPE on my test set
-model.miami.test$SalePrice.Predict <- predict(m2.training, newdata = model.miami.test)
 
 m2.miami.test <-
   model.miami.test %>% 
-  mutate(SalePrice.Error = SalePrice - SalePrice.Predict,
+  mutate(Regression = "Baseline Regression",
+         SalePrice.Predict = predict(m2.training, newdata = model.miami.test),
+         SalePrice.Error = SalePrice - SalePrice.Predict,
          SalePrice.AbsError = abs(SalePrice - SalePrice.Predict),
-         SalePrice.APE = (abs(SalePrice - SalePrice.Predict)) / SalePrice) 
+         SalePrice.APE = (abs(SalePrice - SalePrice.Predict)) / SalePrice) %>%
+  filter(SalePrice < 5000000) 
   
-test_GoodnessFit<-as.data.frame(cbind(mean(m2.miami.test$SalePrice.AbsError),mean(m2.miami.test$SalePrice.APE)))
+test_GoodnessFit<-as.data.frame(cbind(mean(m2.miami.test$SalePrice.AbsError,na.rm = T),
+                                      mean(m2.miami.test$SalePrice.APE,na.rm = T)))
 colnames(test_GoodnessFit)<-c("Mean Absoluate Errors (MAE)","MAPE")
-kable(test_GoodnessFit, format = "markdown") 
+kable(test_GoodnessFit,
+      caption = 'Table RESULT 3. MAE and MAPE for Test Set') %>%
+  kable_styling("striped", full_width = F)
 
 
 # 4. Cross-Validation Test on Model 2
@@ -576,17 +622,21 @@ set.seed(717)
 
 m2.cv <- 
   caret::train(SalePrice ~ ., data = st_drop_geometry(miami.training) %>% 
-                 dplyr::select(SalePrice, Land, Bldg, Assessed, County.Taxable,
-                               AdjustedSqFt, LotSize, Bed,
-                               Bath, ActualSqFt, Age, pool_house, 
-                               college_nn2, college_nn1,
-                               school_nn3, school_nn4, school_nn5) ,
+                 dplyr::select(# internal features
+                   SalePrice, Land, Bldg, Assessed, County.Taxable,
+                   AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                   # amenity features
+                   college_nn1,
+                   school_nn3, school_nn4, school_nn5,
+                   pctTotalVacant, MedRent, MedHHInc) ,
                method = "lm", 
                trControl = fitControl, 
                na.action = na.pass)
 
 ## 4.2 show RMSE, MAE, R^2
-stargazer(m2.cv$resample)
+kable(m2.cv$resample,
+          caption = 'Table RESULT 4. Cross_validation Test: Summary of RMSE, R Squared and MAE') %>%
+  kable_styling("striped", full_width = F)
 
 m2.cv$resample %>% 
   pivot_longer(-Resample) %>% 
@@ -595,14 +645,17 @@ m2.cv$resample %>%
   geom_jitter(width = 0.1) +
   facet_wrap(~name, ncol = 3, scales = "free") +
   theme_bw() +
-  theme(
-    legend.position = "none"
-  )
+  theme(legend.position = "none") +
+  labs(title = 'Cross_validation Test: Distribution of MAE, RMSE, R Squared\n',
+       caption = "Figure RESULT 4.1") +
+  plotTheme()
+
 
 ggplot(data = m2.cv$resample) +
   geom_histogram(aes(x = m2.cv$resample$MAE), fill = 'orange') +
-  labs(title="Distribution of Cross-validation MAE",
-       subtitle = "K = 100") +
+  labs(title="Distribution of Cross-validation MAE\n",
+       subtitle = "K = 100",
+       caption = "Figure RESULT 4.2") +
   xlab('MAE of Model 2') +
   ylab('Count') +
   plotTheme()
@@ -611,12 +664,12 @@ ggplot(data = m2.cv$resample) +
 # Instead, this range of errors suggests the model predicts inconsistently, and would likely be unreliable for predicting houses that have not recently sold.
 
 # 5. Plot predicted prices as a function of observed prices
-preds.train <- data.frame(pred   = predict(m2.training),
+preds.train <- data.frame(pred   = predict(m2.training, model.miami.training),
                           actual = model.miami.training$SalePrice,
                           source = "training data")
 preds.test  <- data.frame(pred   = predict(m2.training,newdata = model.miami.test),
                           actual = model.miami.test$SalePrice,
-                          source = "testing data")
+                          source = "test data")
 preds <- rbind(preds.train, preds.test)
 
 ## Overall Plotting
@@ -627,6 +680,7 @@ ggplot(preds, aes(x = actual, y = pred, color = source)) +
   coord_equal() +
   theme_bw() +
   labs(title = "Predicted Prices as a Function of Observed Prices\n",
+       caption = 'Figure RESULT 5.1',
        x = "Observed Prices",
        y = "Predicted Prices") +
   theme(
@@ -641,8 +695,8 @@ ggplot(preds, aes(x = actual, y = pred, color = source)) +
   coord_equal() +
   theme_bw() +
   facet_wrap(~source, ncol = 2) +
-  labs(title = "Predicted Prices as a Function of Observed Prices, by Sets",
-       subtitle = "",
+  labs(title = "Predicted Prices as a Function of Observed Prices, by Sets\n",
+       caption = 'Figure RESULT 5.2',
        x = "Observed Prices",
        y = "Predicted Prices") +
   theme(
@@ -651,23 +705,41 @@ ggplot(preds, aes(x = actual, y = pred, color = source)) +
   plotTheme()
 
 
-# 6. 
+# 6. Residual Exploration
 ## 6.1 A map of residuals for test set
 map.res.test <- ggplot() + 
   geom_sf(data = st_union(miami.base),fill = 'grey') +
-  geom_sf(data = m2.miami.test,aes(color = q5(SalePrice.AbsError)), show.legend = "point",size = .5) +
+  geom_sf(data = m2.miami.test,aes(color = q5(SalePrice.AbsError)), show.legend = "point",size = 1) +
   scale_color_manual(values = palette,
                      labels = qBr(m2.miami.test,'SalePrice.AbsError'),
                      name = "Residuals") +
   labs(title = 'Map of residuals for test set\n',
-       subtitle = '',
        caption = 'Figure 6.1') +
   mapTheme() + 
   plotTheme()
 map.res.test
 
+## 6.2 Spatial lag in errors: average errors in five nearest neighbors
+k_nearest_neighbors = 5
 
-## 6.2 Moran's I Test
+# average errors in five nearest neighbors
+coords.test <- st_centroid(st_geometry(m2.miami.test), of_largest_polygon=TRUE)
+neighborList.test <- knn2nb(knearneigh(coords.test, k_nearest_neighbors))
+spatialWeights.test <- nb2listw(neighborList.test, style="W") 
+m2.miami.test$lagPriceError <- lag.listw(spatialWeights.test,m2.miami.test$SalePrice.Error)
+
+error.spatial.lag <- ggplot(m2.miami.test, aes(x = lagPriceError, y = SalePrice)) +
+  geom_point(colour = "#FA7800") +
+  geom_smooth(method = "lm", se = FALSE, colour = "#25CB10") +
+  labs(title = "Error on Test Set as a function of the Spatial Lag of Price",
+       caption = "Figure RESULT 6.3",
+       x = "Spatial lag of errors (Mean error of 5 nearest neighbors)",
+       y = "Sale Price") +
+  plotTheme()
+
+error.spatial.lag
+
+## 6.3 Moran's I Test
 moranTest <- moran.mc(model.miami.test$SalePrice.AbsError, 
                       spatialWeights.test, nsim = 999)
 
@@ -683,7 +755,6 @@ moran.plot <- ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c
   plotTheme()
 
 moran.plot
-## 6.3 spatial lag in errors
 
 
 # 7. Map of predicted values for the whole dataset
@@ -717,8 +788,8 @@ nhood_sum <- m2.miami.test %>%
 nhood_sum %>%
   st_drop_geometry %>%
   arrange(desc(meanMAPE)) %>% 
-  kable() %>% 
-  kable_styling()
+  kable(caption = 'Table RESULT 8. Map of MAPE by Neighborhood') %>% 
+  kable_styling("striped", full_width = F)
 
 ## 8.2 Map of MAPE by neighborhood
 
@@ -749,7 +820,8 @@ map.MAPE.nhood
 MAPE.nhood.plot <-ggplot()+
   geom_point(data = nhood_sum, aes(x = meanPrice, y = meanMAPE)) +
   stat_smooth(data = nhood_sum, aes(x = meanPrice, y = meanMAPE), method = "loess", se = FALSE, size = 1, colour="red") + 
-  labs(title="MAPE by Neighborhood as a Function of Mean Price by Neighborhood\n") +
+  labs(title = "MAPE by Neighborhood as a Function of Mean Price by Neighborhood\n",
+       caption = 'Figure RESULT 9') +
   xlab('Mean Price by Neighborhood') +
   ylab('Mean MAPE by Neighborhood') +
   plotTheme()
@@ -757,6 +829,7 @@ MAPE.nhood.plot <-ggplot()+
 MAPE.nhood.plot
 
 # 10. Model generalizability on census data
+## 10.1 Group Plotting
 census <-   miami.training %>% # miami.training contains all features we used including census data and geometry information
    mutate(raceContext = ifelse(pctWhite > .5, "Majority White", "Majority Non-White"),
           incomeContext = ifelse(MedHHInc > mean(MedHHInc,na.rm = T), "High Income", "Low Income"),
@@ -765,36 +838,116 @@ census <-   miami.training %>% # miami.training contains all features we used in
           pctRenterContext = ifelse(pctPoverty > .5, "Majority Renter Occupied", "Majority Non-Renter Occupied")) %>%
   select(raceContext,incomeContext,povertyContext,vacantContext,pctRenterContext)
 
+
 census <- census %>%
   st_transform(st_crs(tracts17))
 
-grid.arrange(ncol = 2,
+plot.group <- grid.arrange(ncol = 2,
              ggplot() + 
                geom_sf(data = st_union(miami.base), fill = 'grey') + 
-               geom_sf(data = na.omit(census), aes(color = raceContext)) +
+               geom_sf(data = na.omit(census), aes(fill = raceContext)) +
                scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Race Context") +
                labs(title = "Race Context") +
                mapTheme() + 
                theme(legend.position="bottom"), 
              ggplot() + 
+               geom_sf(data = st_union(miami.base), fill = 'grey') + 
                geom_sf(data = na.omit(census), aes(color = incomeContext)) +
                scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Income Context") +
                labs(title = "Income Context") +
                mapTheme() + theme(legend.position="bottom"),
              ggplot() + 
+               geom_sf(data = st_union(miami.base), fill = 'grey') + 
                geom_sf(data = na.omit(census), aes(color = povertyContext)) +
                scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Poverty Context") +
                labs(title = "Poverty Context") +
                mapTheme() + theme(legend.position="bottom"),
              ggplot() + 
+               geom_sf(data = st_union(miami.base), fill = 'grey') + 
                geom_sf(data = na.omit(census), aes(color = vacantContext)) +
                scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Vacant Context") +
                labs(title = "Vacant Context") +
                mapTheme() + theme(legend.position="bottom"),
              ggplot() + 
+               geom_sf(data = st_union(miami.base), fill = 'grey') + 
                geom_sf(data = na.omit(census), aes(color = pctRenterContext)) +
                scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Renter Context") +
                labs(title = "Renter Context") +
                mapTheme() + theme(legend.position="bottom"))
 
+plot.group
 
+### Based on the group distribution, we decided to select race group and income group
+
+## 10.2 Neighborhood Fixed Effect
+### 10.2.1 Model building
+m2.nhood <- lm(SalePrice ~ ., data = as.data.frame(model.miami.training) %>% 
+     dplyr::select(# spatial features
+                   LABEL,
+                   # internal features
+                   SalePrice, Land, Bldg, Assessed, County.Taxable,
+                   AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                   # amenity features
+                   college_nn1,
+                   school_nn3, school_nn4, school_nn5,
+                   pctTotalVacant, MedRent, MedHHInc) 
+)
+
+m2.miami.test.nhood <-
+  model.miami.test %>% 
+  mutate(Regression = "Neighborhood Effects",
+         SalePrice.Predict = predict(m2.nhood, model.miami.test),
+         SalePrice.Error = SalePrice - SalePrice.Predict,
+         SalePrice.AbsError = abs(SalePrice - SalePrice.Predict),
+         SalePrice.APE = (abs(SalePrice - SalePrice.Predict)) / SalePrice) %>%
+  filter(SalePrice < 5000000)
+
+### 10.2.2. Model combination and comparison
+bothRegressions <- 
+  rbind(
+    dplyr::select(m2.miami.test, starts_with("SalePrice"), Regression, LABEL) ,
+    dplyr::select(m2.miami.test.nhood, starts_with("SalePrice"), Regression, LABEL) )
+
+st_drop_geometry(bothRegressions) %>%
+  gather(Variable, Value, -Regression, -LABEL) %>%
+  filter(Variable == "SalePrice.AbsError" | Variable == "SalePrice.APE") %>%
+  group_by(Regression, Variable) %>%
+  summarize(meanValue = mean(Value, na.rm = T)) %>%
+  spread(Variable, meanValue) %>%
+  kable(caption = 'Table RESULT 10.1. Summary of MAE, and MAPE by Regression Models') %>%
+  kable_styling("striped", full_width = F) %>%
+  row_spec(1, color = "black", background = "#25CB10") %>%
+  row_spec(2, color = "black", background = "#FA7800")
+
+### 10.2.3. Model coefficents for each Neighborhood
+tidy(m2.nhood) %>% 
+  filter(str_detect(term, "LABEL")) %>% 
+  kable(caption = " RESULT 10.2. Model Coefficents for Each Neighborhood") %>% 
+  kable_styling("striped", full_width = F)
+
+### 10.2.4 Generalizability in Different Groups
+race.group <- st_join(bothRegressions, census) %>% 
+  group_by(Regression, raceContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(SalePrice.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(raceContext, mean.MAPE) %>%
+  kable(caption = "Table  RESULT 10.3. Test set MAPE by Neighborhood Racial Context") %>% 
+  kable_styling("striped", full_width = F)
+
+race.group
+
+income.group <- st_join(bothRegressions, census) %>% 
+  group_by(Regression, incomeContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(SalePrice.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(incomeContext, mean.MAPE) %>%
+  kable(caption  = " RESULT 10.4. Test set MAPE by Neighborhood Income Context") %>% 
+  kable_styling("striped", full_width = F)
+
+income.group
+
+# PREDICTION
+secret_data <- filter(miami.sf, toPredict == 1) 
+secret_preds <- predict(m2.nhood, newdata = miami.test)
+output_preds <- data.frame(prediction = secret_preds, Folio = secret_data$Folio, team_name = "Yiming Ma + Emma Sun")
+write.csv(output_preds, "YOUR_TEAM_NAME.csv")

@@ -114,13 +114,16 @@ ggcorrplot(
   labs(title = "Correlation across numeric variables") 
 
 ### Corr coefficients
-cor.test(miami.sf$AdjustedSqFt, miami.sf$SalePrice, method = "pearson")
-cor.test(miami.sf$Age, miami.sf$SalePrice, method = "pearson")
-cor.test(miami.sf$Bed, miami.sf$SalePrice, method = "pearson")
-cor.test(miami.sf$LotSize, miami.sf$SalePrice, method = "pearson")
-cor.test(miami.sf$Bath, miami.sf$SalePrice, method = "pearson")
-cor.test(miami.sf$LivingSqFt, miami.sf$SalePrice, method = "pearson")
-cor.test(miami.sf$ActualSqFt, miami.sf$SalePrice, method = "pearson")
+c(cor.test(miami.sf$AdjustedSqFt, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$Age, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$AdjustedSqFt, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$Age, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$Bed, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$LotSize, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$Bath, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$LivingSqFt, miami.sf$SalePrice, method = "pearson")$estimate,
+  cor.test(miami.sf$ActualSqFt, miami.sf$SalePrice, method = "pearson")$estimate)
+
 
 
 ## 4. Home price correlation scatterplots

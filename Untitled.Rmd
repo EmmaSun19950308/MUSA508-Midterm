@@ -1,13 +1,42 @@
-**Miami House Price and Internal Characteristics**: basic geometric dataset provided by the course in advance.
+---
+title: "Untitled"
+author: "Emma Sun"
+date: "10/16/2020"
+output: 
+  html_document:
+    highlight: pygments
+    theme: lumen
+    math: katex
+    toc: true
+    toc_float: true
+    code_folding: hide
 
-**Miami Base Data**: geometric data containing the geographic information of Miami and Miami Beach. 
+    
 
-**Miami Neighborhood Shapefiles**: digital geographic [dataset](https://hub.arcgis.com/datasets/2f54a0cbd67046f2bd100fb735176e6c_0) contains polygon features representing neighborhood areas within the City of Miami as well as Miami Beach, Florida. 
 
-**Census Data**: demographic variables from the ACS 2017 for census tracts in Miami-Dade County
+---
 
-**Amenity Data**: compilatory data chosen for describing amenities and public service of Miami-Dade County. The datasets we chose encompasses crime rate, education opportunity, healthcare service and entertainment accessibility. See each dataset below:
+```{r setup, include=FALSE}
+# install.packages("rmdformats")
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-1. [**Sexual Predator**](https://gis-mdc.opendata.arcgis.com/datasets/sexual-predator/data): A point feature class of Sexual Offenders and Predators within Miami-Dade County that is used by the Sexual Offender/Predator Residence Search Internet application.
+## R Markdown
 
-2. [**Public School**](https://gis-mdc.opendata.arcgis.com/datasets/public-school): A point feature class of the Miami-Dade County Public Schools facilities.
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

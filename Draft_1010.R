@@ -111,11 +111,33 @@ miami.sf <- st_read('/Users/penguin/Box Sync/GitHub/MUSA508-Midterm/studentsData
 miami.base <-st_read("https://opendata.arcgis.com/datasets/5ece0745e24b4617a49f2e098df8117f_0.geojson") %>%
   filter(NAME %in% c("MIAMI", "MIAMI BEACH"))
 
-## Neighborhood data
+## Miami city neighborhood data
 miami.neigh <- st_read('https://opendata.arcgis.com/datasets/2f54a0cbd67046f2bd100fb735176e6c_0.geojson')
 plot(miami.neigh)
 
-miami.sf <-st_join(miami.sf,miami.neigh)
+## Miami beach neighborhood data
+miami.beach <- st_read('https://opendata.arcgis.com/datasets/5ece0745e24b4617a49f2e098df8117f_0.geojson') %>%
+  filter(NAME == "MIAMI BEACH") 
+
+# Combine Miami beach neighborhood data and Miami city neighborhood data together
+index <- miami.sf %>%
+  rowid_to_column(var = "rowIndex") 
+
+index.neigh <-st_join(index,miami.neigh) %>%
+  distinct(rowIndex, .keep_all = TRUE) %>%
+  select(-Shape_STAr,-Shape_STLe,-Shape__Area,-Shape__Length)
+
+
+index.beach <- st_join(index,miami.beach) %>%
+  filter(NAME == "MIAMI BEACH") %>%
+  distinct(rowIndex, .keep_all = TRUE) %>%
+  rename(LABEL = NAME) %>% 
+  select(-MUNICID,-MUNICUID,-CREATEDBY,-CREATEDDATE,-MODIFIEDBY,
+  -MODIFIEDDATE,-SHAPE_Length,-SHAPE_Area,-FIPSCODE)
+
+miami.sf <- rbind(index.neigh, index.beach) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
 
 ### check neighborhood information
 miami.neigh.num <- as.data.frame(table(miami.sf$LABEL)) 
@@ -142,14 +164,15 @@ tracts17 <-
          MedRent = B25058_001E,
          TotalPoverty = B06012_002E,
          TotalVacant = B25002_003E,
+         TotalUnit = B25001_001E,
+         RenterOccupied = B08137_003E,
          ForRent = B25004_002E,
          ForRentVac = B25004_003E,
          ForSale = B25004_004E,
-         ForSaleVac = B25004_005E,
-         TotalUnit = B25001_001E,
-         RenterOccupied = B08137_003E
+         ForSaleVac = B25004_005E
          ) %>%
   dplyr::select(-NAME, -starts_with("B")) %>% #-starts_with("B") awesome!
+  # feature engineering
   mutate(pctWhite = ifelse(TotalPop > 0, Whites / TotalPop,0),
          pctPoverty = ifelse(TotalPop > 0, TotalPoverty / TotalPop, 0),
          pctTotalVacant = ifelse(TotalUnit > 0, TotalVacant / TotalUnit, 0),
@@ -479,6 +502,17 @@ map.priceFt
 # ================
 # DATA - 6 
 
+ggplot() + 
+  geom_sf(data = miami.base, fill = "grey40") +
+  stat_density2d(data = data.frame(st_coordinates(miami.hospital.sf)), 
+                 aes(X, Y, fill = ..level.., alpha = ..level..),
+                 size = 0.01, bins = 40, geom = 'polygon') +
+  scale_fill_gradient(low = "#25CB10", high = "#FA7800", name = "Density") +
+  scale_alpha(range = c(0.00, 0.35), guide = FALSE) +
+  labs(title = "Density of landmark Assaults, Miami\n",
+       caption = 'Figure DATA xxx') +
+  mapTheme()
+
 ## 1. Landmark
 plot.landmark <- ggplot() + 
   geom_sf(data = miami.base, fill = "grey40") +
@@ -521,6 +555,8 @@ plot.sexual <- ggplot() +
   mapTheme()
 
 plot.sexual
+
+
 
 # =====================================================================
 # MODEL BUILDING
@@ -760,12 +796,19 @@ moran.plot
 # 7. Map of predicted values for the whole dataset
 miami.sf$Predicted.Price<- predict(m2.training, newdata = miami.sf)
 
+feature <- c("toPredict = 0", "toPredict = 1")
+names(feature) <- c('0','1')
+
+
+
 map.predicted.price <- ggplot() + 
-  geom_sf(data = st_union(miami.base),fill = 'grey') +
+  geom_sf(data = st_union(miami.base),fill = '#E5E5E5') +
   geom_sf(data = st_centroid(miami.sf),aes(color = q5(Predicted.Price)),size = .5) +
   scale_color_manual(values = palette,
                      labels = qBr(miami.sf,'Predicted.Price'),
                      name = "Price, $") +
+  facet_wrap(~as.factor(toPredict),
+             labeller = labeller(toPredict = feature)) +
   labs(title = 'Map of Predicted Sale Price\n',
        subtitle = '',
        caption = 'Figure RESULT 7') +
@@ -774,7 +817,7 @@ map.predicted.price <- ggplot() +
 
 map.predicted.price
 
-
+class(miami.sf$toPredict)
 
 # 8. Map of MAPE by neighborhood
 ## 8.1 Statistic summary by neighborhood group
@@ -947,7 +990,27 @@ income.group <- st_join(bothRegressions, census) %>%
 income.group
 
 # PREDICTION
-secret_data <- filter(miami.sf, toPredict == 1) 
-secret_preds <- predict(m2.nhood, newdata = miami.test)
-output_preds <- data.frame(prediction = secret_preds, Folio = secret_data$Folio, team_name = "Yiming Ma + Emma Sun")
+MODEL <- lm(SalePrice ~ ., data = as.data.frame(miami.training) %>% 
+                 dplyr::select(# spatial features
+                   LABEL,
+                   # internal features
+                   SalePrice, Land, Bldg, Assessed, County.Taxable,
+                   AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                   # amenity features
+                   college_nn1,
+                   school_nn3, school_nn4, school_nn5,
+                   pctTotalVacant, MedRent, MedHHInc) 
+)
+
+
+secret_data <- miami.test 
+
+MODEL$xlevels$LABEL <- union(MODEL$xlevels$LABEL, levels(as.factor(secret_data$LABEL)))
+secret_preds <- predict(MODEL, newdata = secret_data, na.rm = TRUE )
+output_preds <- data.frame(prediction = secret_preds, Folio = secret_data$Folio, team_name = "MySun")
 write.csv(output_preds, "YOUR_TEAM_NAME.csv")
+
+View(output_preds)
+
+
+

@@ -1,0 +1,1392 @@
+---
+title: "MUSA508 Midterm  Project:\nHedonic Home Price Prediction"
+author: "Emma Sun & Yiming Ma"
+date: "10/15/2020"
+output: 
+  html_document:
+    highlight: pygments
+    theme: tactile
+    math: katex
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+## I. Introduction & Motivation
+
+Zillow is one of the most popular real estate databases online. One of Zillow’s key features is its Zestimates, a popular consumer tool for seeing how much homes are worth. These estimates are based on information from sources such as comparable sales and public data. According to Zillow, most Zestimates are "within 10 percent of the selling price of the home.” Although we cannot expect perfectly accurate estimates from any algorithm, it is important to improve the accuracy in many possible ways. This project focuses on one possible improvement: incorporating enough local factors to improve the accuracy of this predictive algorithm.
+
+Miami is a global tourist destination, well known for the local beaches, such as Miami Beach and South Beach, which best represent the uniqueness of Miami. The tourism and real estate industry have been dominating Miami’s economy and mutually boosting each other. There are other aspects that make the real estate market unique and make sales price prediction in Miami trickier than in other cities.
+
+**Renters form 70% of the population**. In Miami, renters form a large percentage of the population. Partly due to the mobility of work. Most of the people work in temporary or seasonal jobs specifically in the tourism industry. Moreover, rental housing is more affordable than buying a house due to the overall high property sale prices in Miami. Rental market can affect the sales market. And that is why a lot of investors are buying single-family homes and then renovating them into multiple rentable units.
+
+**Foreign buyers pricing out locals out of Miami**. And as South Florida continues to grow into an international destination beyond vacations and beaches, locals must compete with cash-rich foreign and out-of-state buyers, whose growing presence keeps driving up land and housing prices while local wages remain stagnant.
+
+**Florida flooding could devalue real estate**. According to the Jupiter Intelligence report, by 2050, annual flooding damage county-wide in Miami-Dade County is expected to roughly double, leading to shortages in affordable insurance coverage and real estate market instability. On the list of the 20 urban areas in America that will suffer the most from rising seas, Florida has five: St Petersburg, Tampa, Miami, Miami Beach and Panama City. In 2016, Zillow predicted that one out of eight homes in Florida would be underwater by 2100, a loss of $413bn in property.
+
+However, with the understanding of incorporating local intelligence into the model, this is no easy task to do. On the one hand, some features can be hard to quantify. On the other hand, open datasets might not be available. For example, case-level crime data is unavailable on the Miami Open Data Portal, and it is almost intuitive to take crime into account when predicting housing value of every city. Thus, seeking other ways to illustrate this feature is crucial for carrying on with our analysis on the Miami housing market.
+
+This project adopted **geospatial machine learning** techniques, split housing sale price dataset into training and test set, incorporated local intelligence features from Census data and Miami Open Data portal, and trained the final model to achieve the lowest possible error rate.
+
+After several rounds of testing, the final model includes important features such as `school` location, `hospital` location, and `vacant rate` in census tract. Applying the final model to the test set, the Mean Absolute Errors (MAE) of the model is 59645, and the Mean Absolute Percent Errors (MAPE) is 0.12
+
+
+```{r Load Libraries, echo=TRUE, message=FALSE, warning=FALSE}
+# 1. load Libraries
+library(sf)
+library(tidyverse)
+# install.packages('mapview')
+library(mapview)
+library(spdep)
+library(caret)
+library(ckanr) # for opening data APIs built on CKAN technology
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot)
+library(jtools)     # for regression model plots
+library(stargazer) # for creating table
+library(broom)
+library(tufte)
+library(rmarkdown)
+library(kableExtra)
+library(tidycensus)
+
+# 2. Identify functions
+mapTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 15,colour = "black"),
+    plot.subtitle=element_text(face="italic"),
+    plot.caption=element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(colour = "black", fill=NA, size=2),
+    strip.text.x = element_text(size = 14))
+}
+
+plotTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(color = "darkred", size=15, face="bold"),
+    plot.subtitle = element_text(face="italic"),
+    plot.caption = element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line("#E5E5E5", size = 0.1),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(colour = "black", fill=NA, size=2),
+    strip.background = element_rect(fill = "#E5E5E5", color = "white"),
+    strip.text = element_text(size=12),
+    axis.title = element_text(size=12),
+    axis.text = element_text(size=10),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    legend.title = element_text(colour = "black", face = "italic"),
+    legend.text = element_text(colour = "black", face = "italic"),
+    strip.text.x = element_text(size = 14)
+  )
+}
+
+#3. Load Quantile break functions
+
+qBr <- function(df, variable, rnd) {
+  if (missing(rnd)) {
+    as.character(quantile(round(df[[variable]],0),
+                          c(.01,.2,.4,.6,.8), na.rm=T))
+  } else if (rnd == FALSE | rnd == F) {
+    as.character(formatC(quantile(df[[variable]]), digits = 3),
+                 c(.01,.2,.4,.6,.8), na.rm=T)
+  }
+}
+
+q5 <- function(variable) {as.factor(ntile(variable, 5))}
+
+
+# Load hexadecimal color palette
+
+palette <- c('#feedde', '#fdbe85', '#fd8d3c', '#e6550d', '#a63603')
+
+# for calculating average nearest neighbor distance.
+
+nn_function <- function(measureFrom,measureTo,k) {
+  measureFrom_Matrix <- as.matrix(measureFrom)
+  measureTo_Matrix <- as.matrix(measureTo)
+  nn <-   
+    get.knnx(measureTo, measureFrom, k)$nn.dist
+  output <-
+    as.data.frame(nn) %>%
+    rownames_to_column(var = "thisPoint") %>%
+    gather(points, point_distance, V1:ncol(.)) %>%
+    arrange(as.numeric(thisPoint)) %>%
+    group_by(thisPoint) %>%
+    dplyr::summarize(pointDistance = mean(point_distance)) %>%
+    arrange(as.numeric(thisPoint)) %>% 
+    dplyr::select(-thisPoint) %>%
+    pull() # pull() is similar to $. It's mostly useful because it looks a little nicer in pipes, it also works with remote data frames, and it can optionally name the output.
+  
+  return(output)  
+}
+
+```
+
+## II. Data Manipulation and Visualization
+### 2.0 Setup
+In this section, we loaded necessary libraries, created plot theme options and map theme options, and identified functions of quintile breaks, and average nearest neighbor distance for further analysis.
+
+### 2.1 Data Wrangling 
+
+In this section, we loaded Miami data and other complementary datasets, conducted feature selection and engineering. Besides, for other analysis, we separate the whole dataset into `miami.training` and `miami.test` in advance.  
+
+
+#### 2.1.1 Data loading
+
+Five categorical  datasets were used in this project:
+
+* **Miami House Price and Internal Characteristics**: basic geometric dataset provided by the course in advance.
+
+* **Miami Base Data**: geometric data containing the geographic information of Miami and Miami Beach. 
+
+* **Miami Neighborhood Shapefiles**: digital geographic [dataset](https://hub.arcgis.com/datasets/2f54a0cbd67046f2bd100fb735176e6c_0) contains polygon features representing neighborhood areas within the City of Miami as well as Miami Beach, Florida. 
+
+* **Miami Beach Neighborhood**: As an alternative way to using neighborhood data of Miami Beach, we used Miami [Municipal Boundary](https://gis-mdc.opendata.arcgis.com/datasets/5ece0745e24b4617a49f2e098df8117f_0) data that is a polygon feature class of municipal boundaries within Miami-Dade County, and specifically filter geometric data in Miami Beach.
+
+* **Census Data**: demographic variables from the ACS 2017 for census tracts in Miami-Dade County. We specifically selected 8 variables in the analysis: 
+    + `TotalPop`: Total population in each census tract 
+    + `Whites`: White population in each census tract
+    + `MedHHInc`: Median household income in each census tract
+    + `MedRent`: Median Rent for properties in each census tract
+    + `TotalPoverty`: Population living under the level of poverty in each census tract
+    + `TotalVacant`: Total vacant unit in each census tract 
+    + `TotalUnit`: Total housing units in each census tract
+    + `RenterOccpied`: Total householder lived in renter-occupied housing units
+    
+    With variables above, we created the four features to be used in the model building.
+    
+    + `pctWhite`: white population proportion in each census tract
+    + `pctPoverty`: Poverty population proportion in each census tract
+    + `pctTotalVacant`: Vacant unites proportion in each census tract
+    + `pctRenterOccupied`: Proportion of householder living in renter-occupied housing units in each census tract
+
+    *Notice: Those vacant related variables are vital features we explored that would significantly improve our model and powerfully predict price. Detailed information will be provided in the following analysis.*
+
+* **Amenity Data**: compilatory data chosen for describing amenities and public service of Miami-Dade County. The datasets we chose encompasses crime rate, education opportunity, healthcare service and entertainment accessibility. See each dataset below:
+
+    1. [**Sexual Predator**](https://gis-mdc.opendata.arcgis.com/datasets/sexual-predator/data): A point feature class of Sexual Offenders and Predators within Miami-Dade County that is used by the Sexual Offender/Predator Residence Search Internet application.
+
+    2. [**Public School**](https://gis-mdc.opendata.arcgis.com/datasets/public-school): A point feature class of the Miami-Dade County Public Schools facilities.
+
+    3. [**College, University**](https://gis-mdc.opendata.arcgis.com/datasets/college): A point feature class of colleges and universities within Miami-Dade County.
+
+    4. [**Hospital**](https://gis-mdc.opendata.arcgis.com/datasets/hospital-1): A point feature class of the Hospital facilities within Miami-Dade County.
+
+    5. [**Landmark**](https://gis-mdc.opendata.arcgis.com/datasets/landmark): A point feature class of landmarks within Miami-Dade County.
+
+    6. [**Hotel, Motel, Inn**](https://gis-mdc.opendata.arcgis.com/datasets/hotel-motel-inn): A point feature class of Hotel, Motel and Inn facilities within Miami-Dade County.
+
+    7. [**Shopping Mall**](https://gis-mdc.opendata.arcgis.com/datasets/major-mall): A point feature class that contains the locations of major shopping malls within Miami-Dade County. Shopping Mall is considered a large retail complex containing a variety of stores and often restaurants in which one or more buildings form a complex of shops representing merchandisers with interconnecting walkways that enable customers to walk from unit to unit.
+
+
+```{r Base, message=FALSE, warning=FALSE, results = FALSE}
+
+# I. Base data
+## House Price & internal characteristics
+# miami.sf <- st_read('C:/Users/Yiming Ma/Documents/UPenn/MUSA508/hw/hw2/studentsData.geojson')
+
+miami.sf <- st_read('/Users/penguin/Box Sync/GitHub/MUSA508-Midterm/studentsData.geojson')
+
+
+## Miami base data
+miami.base <-st_read("https://opendata.arcgis.com/datasets/5ece0745e24b4617a49f2e098df8117f_0.geojson") %>%
+  filter(NAME %in% c("MIAMI", "MIAMI BEACH"))
+
+## Neighborhood data
+miami.neigh <- st_read('https://opendata.arcgis.com/datasets/2f54a0cbd67046f2bd100fb735176e6c_0.geojson')
+# plot(miami.neigh)
+
+## Miami beach neighborhood data
+miami.beach <- st_read('https://opendata.arcgis.com/datasets/5ece0745e24b4617a49f2e098df8117f_0.geojson') %>%
+  filter(NAME == "MIAMI BEACH") 
+
+# Combine Miami beach neighborhood data and Miami city neighborhood data together
+index <- miami.sf %>%
+  rowid_to_column(var = "rowIndex") 
+
+index.neigh <-st_join(index,miami.neigh) %>%
+  distinct(rowIndex, .keep_all = TRUE) %>%
+  select(-Shape_STAr,-Shape_STLe,-Shape__Area,-Shape__Length)
+
+
+index.beach <- st_join(index,miami.beach) %>%
+  filter(NAME == "MIAMI BEACH") %>%
+  distinct(rowIndex, .keep_all = TRUE) %>%
+  rename(LABEL = NAME) %>% 
+  select(-MUNICID,-MUNICUID,-CREATEDBY,-CREATEDDATE,-MODIFIEDBY,
+  -MODIFIEDDATE,-SHAPE_Length,-SHAPE_Area,-FIPSCODE)
+
+### Create final data we will work on!
+miami.sf <- rbind(index.neigh, index.beach) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
+
+### check neighborhood information
+miami.neigh.num <- as.data.frame(table(miami.sf$LABEL)) 
+
+## Census Tract data
+## View(load_variables(2017,'acs5',cache = TRUE))
+tracts17 <- 
+  get_acs(geography = "tract", variables = c("B25026_001E","B02001_002E",
+                                             "B19013_001E","B25058_001E",
+                                             "B06012_002E", 
+                                             # vacant variables
+                                             "B25002_003E", 
+                                             "B25004_002E","B25004_003E",
+                                             "B25004_004E","B25004_005E",
+                                             # total housing unit
+                                             "B25001_001E",
+                                             # renter occupied 
+                                             'B08137_003E'), 
+          year=2017, state= 12, county= 086, geometry=T, output="wide") %>%
+  st_transform('EPSG:2236') %>%
+  rename(TotalPop = B25026_001E, 
+         Whites = B02001_002E,
+         MedHHInc = B19013_001E, 
+         MedRent = B25058_001E,
+         TotalPoverty = B06012_002E,
+         TotalVacant = B25002_003E,
+         ForRent = B25004_002E,
+         ForRentVac = B25004_003E,
+         ForSale = B25004_004E,
+         ForSaleVac = B25004_005E,
+         TotalUnit = B25001_001E,
+         RenterOccupied = B08137_003E
+         ) %>%
+  dplyr::select(-NAME, -starts_with("B")) %>% #-starts_with("B") awesome!
+  mutate(pctWhite = ifelse(TotalPop > 0, Whites / TotalPop,0),
+         pctPoverty = ifelse(TotalPop > 0, TotalPoverty / TotalPop, 0),
+         pctTotalVacant = ifelse(TotalUnit > 0, TotalVacant / TotalUnit * 100, 0),
+         TotalOccupied = TotalUnit - TotalVacant,
+         pctRenterOccupied = ifelse(TotalOccupied >0, RenterOccupied/TotalOccupied, 0)) %>%
+  dplyr::select(-Whites, -TotalPoverty) 
+
+
+projected.tracts17 <- 
+  tracts17 %>% 
+  st_transform(st_crs(miami.sf))
+
+miami.sf <-st_join(miami.sf, projected.tracts17) %>%
+  distinct(rowIndex, .keep_all = TRUE)
+  
+
+
+## Amenity Data
+## 1. Miami landmark
+miami.landmark <- st_read('https://opendata.arcgis.com/datasets/70a14825e66f4f0eb28d2a9cceba1761_0.geojson')
+miami.landmark.sf <- miami.landmark %>%
+  select(geometry) %>%
+  na.omit() %>%
+  distinct()
+
+## 2. Miami Shopping Mall
+miami.mall <- st_read('https://opendata.arcgis.com/datasets/cb24d578246647a9a4c57bbd80c1caa8_0.geojson')
+miami.mall.sf <- miami.mall %>%
+  select(geometry) %>%
+  na.omit() %>%
+  distinct()
+
+## 3. Miami Sexual Predator
+miami.sexual <- st_read('https://opendata.arcgis.com/datasets/f8759d722aeb4198bfe7c4ad780604d2_0.geojson')
+
+miami.sexual.sf <- miami.sexual %>%
+  select(geometry) %>%
+  na.omit() %>%
+  distinct()
+
+## 4. School data
+miami.school <- st_read('https://opendata.arcgis.com/datasets/d3db0fce650d4e40a5949b0acae6fe3a_0.geojson')
+miami.school.sf <- miami.school %>%
+  select(geometry) %>%
+  na.omit() %>%
+  distinct()
+
+
+## 5. Hotel data
+miami.hotel <- st_read('https://opendata.arcgis.com/datasets/d37bbc15e7304b4ca4607783283147b7_0.geojson')
+miami.hotel.sf <- miami.hotel%>%
+  select(geometry) %>%
+  na.omit() %>%
+  distinct()
+
+## 6. College data
+miami.college <- st_read('https://opendata.arcgis.com/datasets/7db056c406b943dc8f3f377b99d77588_0.geojson')
+miami.college.sf <- miami.college%>%
+  select(geometry) %>%
+  na.omit() %>%
+  distinct()
+
+## 7. Hospital data
+miami.hospital <- st_read('https://opendata.arcgis.com/datasets/0067a0e8b40644f980afa23ad34c32c4_0.geojson')
+miami.hospital.sf <- miami.hospital %>%
+  select(geometry) %>%
+  na.omit() %>%
+  distinct()
+
+```
+
+#### 2.1.2 Feature Engineering
+
+In this section, we created some new features to describe the amenities and public services in Miami-Dade County, as well as to each home sale observation’s internal characteristics.
+
+First of all, we were aimed at creating features to measure **the extent to which buyers can assess multiple public services**, including hospitals, shopping malls, landmarks, hotels, motels and inns, and education resources. To utmost avoid scale bias triggered by setting arbitrary areal unit or fixed buffer distance of each home sale observation,  we chose to calculate the average nearest neighbor distance from each home sale to its *k* nearest neighbor public services. Accordingly, the smaller the value is, the more possibility that the observation can access specific service. To better compare each feature’s impact, we set the *k* from 3 to 5.
+
+By leveraging the exactly same approach, we also created a new feature to measure the extent to which buyers can expose sexual assaults. 
+
+Secondly, we added four more features to indicate the duration each house was built, effectively used, and if the house was built with a pool or a patio.
+
+
+```{r Feature Engineering, message=FALSE, warning=FALSE, results = FALSE}
+## 1. Landmark
+miami.sf <-
+  miami.sf %>% 
+  mutate(
+    landmark_nn1 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.landmark.sf)), 1),
+    landmark_nn2 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.landmark.sf)), 2), 
+    landmark_nn3 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.landmark.sf)), 3), 
+    landmark_nn4 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.landmark.sf)), 4), 
+    landmark_nn5 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.landmark.sf)), 5)) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+  
+
+
+## 2. Shopping mall
+miami.sf <-
+  miami.sf %>% 
+  mutate(
+    mall_nn1 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.mall.sf)), 1),
+    mall_nn2 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.mall.sf)), 2), 
+    mall_nn3 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.mall.sf)), 3), 
+    mall_nn4 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.mall.sf)), 4), 
+    mall_nn5 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.mall.sf)), 5)) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
+## 3. Sexual Assaults
+miami.sf <-
+  miami.sf %>% 
+  mutate(
+    sexual_nn1 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.sexual.sf)), 1),
+    sexual_nn2 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.sexual.sf)), 2), 
+    sexual_nn3 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.sexual.sf)), 3), 
+    sexual_nn4 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.sexual.sf)), 4), 
+    sexual_nn5 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.sexual.sf)), 5)) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
+
+## 4. Hotel Access
+miami.sf <-
+  miami.sf %>% 
+  mutate(
+    hotel_nn1 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hotel.sf)), 1),
+    hotel_nn2 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hotel.sf)), 2), 
+    hotel_nn3 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hotel.sf)), 3), 
+    hotel_nn4 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hotel.sf)), 4), 
+    hotel_nn5 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hotel.sf)), 5)) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
+
+## 5. School Access
+
+miami.sf <-
+  miami.sf %>% 
+  mutate(
+    school_nn1 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.school.sf)), 1),
+    school_nn2 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.school.sf)), 2), 
+    school_nn3 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.school.sf)), 3), 
+    school_nn4 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.school.sf)), 4), 
+    school_nn5 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.school.sf)), 5)) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
+
+## 6. College Access
+miami.sf <-
+  miami.sf %>% 
+  mutate(
+    college_nn1 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.college.sf)), 1),
+    college_nn2 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.college.sf)), 2), 
+    college_nn3 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.college.sf)), 3), 
+    college_nn4 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.college.sf)), 4), 
+    college_nn5 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.college.sf)), 5)) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
+## 7. Hospital Access
+miami.sf <-
+  miami.sf %>% 
+  mutate(
+    hospital_nn1 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hospital.sf)), 1),
+    hospital_nn2 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hospital.sf)), 2), 
+    hospital_nn3 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hospital.sf)), 3), 
+    hospital_nn4 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hospital.sf)), 4), 
+    hospital_nn5 = nn_function(st_coordinates(st_centroid(miami.sf)), st_coordinates(st_centroid(miami.hospital.sf)), 5)) %>%
+  distinct(rowIndex, .keep_all = TRUE) 
+
+## 8. Internal characteristics
+miami.sf <-
+  miami.sf %>% 
+  mutate(pool_house = ifelse(str_detect(XF1, "Pool"), 1, 0),
+         patio_house = ifelse(str_detect(XF1, "Patio"), 1, 0),
+         Age = 2020- YearBuilt,
+         Age.effective = 2020- EffectiveYearBuilt)
+
+```
+
+
+#### 2.1.3 Split dataset by 'toPredict'
+
+As indicated earlier, we separated the whole dataset (3503 observations in total) into `miami.training` and `miami.test` in advance for model building in next section. So far, we have 2,627 home sale observations for working on, while we used the left 876 observations to test model for competition. 
+
+```{r Split Dataset, echo=TRUE, message=FALSE, warning=FALSE}
+# Split dataset 
+miami.training <- miami.sf %>%
+  filter(toPredict == '0')
+
+# summary(miami.training)
+
+miami.test <- miami.sf %>%
+  filter(toPredict == '1') 
+
+# summary(miami.test)
+```
+
+
+### 2.2 Summary Statistics of Features
+
+As required, we provided three tables of summary statistics with variable descriptions for sorting features based on their categories below.
+
+In total, we took **62** features into consideration in the initial stage. 
+
+19 features (including `SalePrice` came from the category “internal characteristics”36 features came from the category “amenity/public service”.For spatial features, we decided to continue to stick on neighborhood features as well as 6 more features extracted from census data, and summarize house number in each neighborhood for better understanding. In this analysis, we regarded census data as indicators to show the house unit spatial environment.
+
+Detailed summary statistics are provided below. 
+
+
+```{r All Features, echo=TRUE, message=FALSE, warning=FALSE}
+## All potential features
+all.feature.list <- miami.training %>%
+  dplyr:: select(-saleDate,-saleType,-saleQual,-saleYear,-Property.Address,
+         -Year,-WVDB,-HEX,-GPAR,-County.2nd.HEX,-County.Senior,-County.LongTermSenior,
+         -County.Other.Exempt,-City.2nd.HEX,-City.Senior,-City.LongTermSenior,
+         -City.Other.Exempt,-MillCode,-Land.Use,-Owner1,-Owner2,-Mailing.Address,
+         -Mailing.City,-Mailing.State,-Mailing.Zip,-Mailing.Country,
+         -starts_with("Legal"), -YearBuilt, -EffectiveYearBuilt, -X, -FID, -starts_with("Shape_"), -Folio,
+         -XF1, -XF2, -XF3) %>%
+  st_drop_geometry()
+
+
+
+```
+
+```{r Three, echo=TRUE, message=FALSE, warning=FALSE, results ='asis'}
+## 2.1 Feature: Internal Characteristics
+internal.feature.list <- all.feature.list %>%
+  dplyr:: select(SalePrice, Land, Bldg, Total, Assessed,County.Taxable,City.Taxable,AdjustedSqFt,
+                 LotSize, Bed, Bath, Stories, Units, LivingSqFt, ActualSqFt, Age,Age.effective,
+                 pool_house, patio_house) 
+
+stargazer(internal.feature.list, type = "html", 
+          title = "Table DATA 2.1 Summary Statistics of Internal Characteristics ",
+          header = FALSE,
+          single.row = TRUE)
+
+
+## 2.2 Feature: Amenities/Public Services
+amenity.feature.list <- all.feature.list %>%
+  dplyr:: select(starts_with('landmark_'),starts_with('mall_'),starts_with('hospital_'),
+                 starts_with('college_'),starts_with('school_'),starts_with('hotel_'))
+
+
+
+stargazer(amenity.feature.list, type = "html", 
+          title = "Table DATA 2.2 Summary Statistics of Amenities/Public Services ",
+          header = FALSE,
+          single.row = TRUE)
+
+## 2.3 Spatial Structure: Neighborhood
+spatial.feature.list <- all.feature.list %>%
+  dplyr:: select(LABEL) 
+
+
+as.data.frame(table(spatial.feature.list)) %>%
+  rename(`Neighborhood List` = spatial.feature.list,
+         Number =Freq) %>%
+  kable(caption = 'Table DATA 2.3 Spatial Feature: Neighborhood') %>%
+  kable_styling("striped", full_width = F)
+
+census.feature.list <- all.feature.list %>%
+  dplyr:: select(pctTotalVacant, pctRenterOccupied, pctWhite,pctPoverty, MedRent ,MedHHInc)
+
+
+stargazer(census.feature.list, type = "html", 
+          title = "Table DATA 2.4 Spatial Feature: Census Data ",
+          header = FALSE,
+          single.row = TRUE)
+
+```
+
+
+### 2.3 Correlation Matrix
+
+For better visualization, features were divided into internal characteristics and amenity again when creating correlation matrix. Based on the graduated color, some features have strong relation with Sale Price, such as`Land`, `Total`, `Taxable` and `Actual SqFt`.
+
+```{r Correlation Matrix, echo=TRUE, message=FALSE, warning=FALSE}
+# DATA - 3 Correlation Matrix
+miami.numericVars.internal <- 
+  select_if(internal.feature.list, is.numeric) %>% 
+  na.omit()
+
+amenity.feature.list.with.price <- all.feature.list %>%
+  dplyr:: select(SalePrice, starts_with('landmark_'),starts_with('mall_'),starts_with('hospital_'),
+                 starts_with('college_'),starts_with('school_'),starts_with('hotel_'),
+                 pctTotalVacant, pctRenterOccupied, pctWhite,pctPoverty, MedRent ,MedHHInc)
+
+miami.numericVars.amenity <- 
+  select_if(amenity.feature.list.with.price, is.numeric) %>% 
+  na.omit()
+
+
+ggcorrplot(
+  round(cor(miami.numericVars.internal), 1), 
+  p.mat = cor_pmat(miami.numericVars.internal),
+  colors = c('#05A167', "white", '#6897BB'),
+  lab_size = 1,
+  tl.cex = 8,
+  type="lower",
+  insig = c("pch", "blank"), pch = 1, pch.col = "black", pch.cex =1) +  
+  labs(title = "Correlation across numeric variables\n(internal features)\n",
+       caption = 'Figure DATA 3.1') +
+  plotTheme()
+
+ggcorrplot(
+  round(cor(miami.numericVars.amenity), 1), 
+  p.mat = cor_pmat(miami.numericVars.amenity),
+  colors = c('#05A167', "white", '#6897BB'),
+  lab_size = 1,
+  tl.cex = 5,
+  type="lower",
+  insig = c("pch", "blank"), pch = 1, pch.col = "black", pch.cex =1) +  
+  labs(title = "Correlation across numeric variables\n(amenity/public service features)\n",
+       caption = 'Figure DATA 3.2') +
+  plotTheme()
+
+```
+
+
+### 2.4 Home Price Correlation Scatterplots
+
+In this section, we specifically explored the correlation between sale price and four interesting and meaningful features: `pctTotalVacant`, `AdjustSqFt`, `school_nn4` (average distance of four nearest public schools) and `hospital_nn1` (the accessibility to nearest hospital).  
+
+Through graphs below, it is obvious that the first three of four features are positively correlated to sale price, while the distance to nearest hospital is negatively correlated to the sale price that is consistent with our intuition. 
+
+
+```{r Scatter plot, echo=TRUE, message=FALSE, warning=FALSE}
+# DATA - 4 Scatter plot  
+## 1. Two House Internal characteristics
+features <- c('Adjusted Square Feet', 'Percentage of Vacant Property')
+names(features) <- c("AdjustedSqFt", "pctTotalVacant")
+price.house.plot <- 
+  st_drop_geometry(miami.training) %>% 
+  dplyr::select(SalePrice, pctTotalVacant, AdjustedSqFt) %>%
+  filter(SalePrice <= 1000000) %>%
+  gather(Variable, Value, -SalePrice) %>% 
+  ggplot(aes(Value, SalePrice)) +
+  geom_point(size = .5) + 
+  geom_smooth(method = "lm", se=F, colour = "darkred") +
+  facet_wrap(~Variable, ncol = 2, scales = "free",
+             labeller = labeller(Variable = features)) +
+  plotTheme() + 
+  labs(title = "Price as a Function of House Internal Characteristics Variables:\nVacant Property, Adjusted Housing Area\n",
+       caption = 'Figure DATA 4.1') 
+
+price.house.plot
+
+## 2. Average Distance of Nearest Four Public Schools Correlation 
+price.school_nn4.plot <-
+  st_drop_geometry(miami.training) %>% 
+  dplyr::select(SalePrice, school_nn4) %>%
+  filter(SalePrice <= 1000000) %>%
+  gather(Variable, Value, -SalePrice) %>% 
+  ggplot(aes(Value, SalePrice)) +
+  geom_point(size = .5) + 
+  geom_smooth(method = "lm", se=F, colour = "darkred") +
+  labs(title = "Price as a Function of Average Distance of\nNearest Four Public Schools Correlation\n",
+       caption = 'Figure DATA 4.2') +
+  plotTheme()
+
+price.school_nn4.plot
+
+## 3. Hospital Correlation 
+price.hospital_nn1.plot <-
+  st_drop_geometry(miami.training) %>% 
+  dplyr::select(SalePrice, hospital_nn1) %>%
+  filter(SalePrice <= 1000000) %>%
+  gather(Variable, Value, -SalePrice) %>% 
+  ggplot(aes(Value, SalePrice)) +
+  geom_point(size = .5) + 
+  geom_smooth(method = "lm", se=F, colour = "darkred") +
+  labs(title = "Price as a Function of Average Distance of\nNearest Four Hospitals Correlation\n",
+       caption = 'Figure DATA 4.3') +
+  plotTheme()
+
+price.hospital_nn1.plot
+
+```
+
+### 2.5 Map of Sale Price per Square Feet
+
+The sale price per SqFt in Miami shows a clear spatial pattern. The sale price in Miami Beach and Downtown Miami is significantly higher than other areas.
+
+```{r Sale Price Map, echo=TRUE, message=FALSE, warning=FALSE}
+# DATA - 5 Map of Sale Price per Square Feet
+
+miami.training <- miami.training %>%
+  mutate(priceFt = SalePrice/LivingSqFt)
+
+map.priceFt <- ggplot() + 
+  geom_sf(data = st_union(miami.neigh),fill = '#E5E5E5') +
+  geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+  geom_sf(data = st_centroid(miami.training),aes(color = q5(priceFt)),size = .5) +
+  scale_color_manual(values = palette,
+                     labels = qBr(miami.training,'priceFt'),
+                     name = "Price/ft^2") +
+  labs(title = 'Sale Price Per Square Foot\n',
+       caption = 'Figure DATA 5') +
+  mapTheme() + 
+  plotTheme()
+
+map.priceFt
+
+```
+
+### 2.6 Maps of Independent Variables
+
+In this section, we were aimed at mapping the vacant units proportion by each census tract where certain home sale observation is located at, the adjusted area of each home sale observation and the distribution of average distance of each home sale observation to the nearest hospital.   
+
+```{r landmarkmap, echo=TRUE, message=FALSE, warning=FALSE}
+# DATA - 6 
+
+## 1. Vacant units
+map.pctV <- ggplot() + 
+  geom_sf(data = st_union(miami.neigh),fill = '#E5E5E5') +
+  geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+  geom_sf(data = st_centroid(miami.training),aes(color = q5(pctTotalVacant)),size = .5) +
+  scale_color_manual(values = palette,
+                     labels = qBr(miami.training,'pctTotalVacant'),
+                     name = "Percentage of Vacant Units") +
+  labs(title = 'Percentage of Vacant Units',
+       subtitle = 'Note: dots indicating the vacant unts proportion in certain census tract\nwhere certain home sale observation is located at.\n',
+       caption = 'Figure DATA 6.1') +
+  mapTheme() + 
+  plotTheme()
+
+map.pctV
+
+
+## 2. Adjusted Square Feet 
+
+map.Adjust.SqFt <- ggplot() + 
+  geom_sf(data = st_union(miami.neigh),fill = '#E5E5E5') +
+  geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+  geom_sf(data = st_centroid(miami.training),aes(color = q5(AdjustedSqFt)),size = .5) +
+  scale_color_manual(values = palette,
+                     labels = qBr(miami.training,'AdjustedSqFt'),
+                     name = "Adjusted Square Feet") +
+  labs(title = 'Distribution of Adjusted Square Feet\n',
+       caption = 'Figure DATA 6.2') +
+  mapTheme() + 
+  plotTheme()
+
+map.Adjust.SqFt
+
+
+
+## 3. Hospital
+
+hospital_nn1_expanded <- miami.training %>%
+  mutate(hospital_nn1.expanded = hospital_nn1 * 1000)
+
+map.hospital <- ggplot() + 
+  geom_sf(data = st_union(miami.neigh),fill = '#E5E5E5') +
+  geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+  geom_sf(data = st_centroid(hospital_nn1_expanded),aes(color = q5(hospital_nn1.expanded)),size = .5) +
+  scale_color_manual(values = palette,
+                     labels = qBr(hospital_nn1_expanded,'hospital_nn1.expanded'),
+                     name = "Average Distrance\nto Nearest Hospital\n(timed by 1000 \nfor better visualization)\n") +
+  labs(title = 'Distribution of Average Distrance to Nearest Hospital\nof Each Home Sale Observation\n',
+       caption = 'Figure DATA 6.3') +
+  mapTheme() + 
+  plotTheme()
+
+map.hospital
+
+```
+
+
+
+## III. Methods 
+
+The mean objective of this analysis is to train a robust model to predict house price as accurately as possible. Accordingly, this section started to provide a detailed interpretation on the process of the model building. 
+
+* **Data and Sample**    In order to accurately build and test models, we randomly split the whole `miami.training` into two parts: `model.miami.training` with 60% of observations for model training and `model.miami.test` with 40% of observations for model testing. 
+
+* **Dependent Variable**    The dependent variable is home sale price: `SalePrice`. 
+
+* **Independent Variables**    Based on the **hedonic home price model**, potential features should encompass at least three components: **internal characteristics**, like the number of bathrooms; **neighborhood amenities/public services**, like hospital accessibility; and the underlying **spatial** process of prices. After creating features and  engineering and checking correlation coefficients, 54 features are eligible for the model and obviously or slightly correlated with `SalePrice` that were the initial independent variables for model building. We gradually screened out variables and eventually selected only **16** robust features included in the final model
+
+* **Procedure**  The primitive approach used in this analysis for model building is Ordinary Least Squares Regression (OLS) which is aimed at predicting the `SalePrice` of houses as a function of several statistical parameters such as *intercept*, *slope* and selected *features*. In order to determine which features were able to significantly increase the accuracy and generalizability of the model, we systematically compared, plotted, and mapping the mean absolute errors (MAE), mean absolute percent errors (MAPE), as well as root mean square errors (RMSE, the standard deviation of the residuals) between original `SalePrice` and predicted `SalePrice` of both training set and test set, conducted the cross-validation on 100 folds, explored the underlying spatial pattern of price and errors caused by problematic prediction. To address the problem of neglecting the underlying spatial correlation caused by neighborhood, we then compared, plotted, and mapped the mean absolute errors (MAE), and mean absolute percent errors (MAPE) on the test set between baseline model without neighborhood features and updated model with neighborhood features, and then determined our final model based on series model examinations.
+
+
+
+## IV. Result
+
+
+### 4.1 Dataset Splitting and Model Building
+
+First of all, as indicated in the [III. Methods](#anchor), the dataset was divided into training set and test set, with the ratio of 6:4. 
+
+
+```{r Split, echo=TRUE, message=FALSE, warning=FALSE}
+# 1. Split dataset
+set.seed(31357)
+
+# get index for training sample
+inTrain <- caret::createDataPartition(
+  y = paste(miami.training$LABEL,miami.training$SalePrice ), 
+  p = .60, list = FALSE)
+# split data into training and test
+model.miami.training <- miami.training[inTrain,] 
+model.miami.test <- miami.training[-inTrain,] 
+
+```
+
+Secondly, we built three models with different features to examine which features should be included.
+
+* Model 1 included all the features we were interested in.
+* Model 2 excluded some of features which were not significantly correlated with `SalePrice` in Model 1.
+* Model 3 continued to exclude some of features which were not significantly correlated with `SalePrice` in Model 2 but remained the ones with comparatively large correlation coefficients. And Model 3 was the **baseline model** in this analysis. 
+
+The baseline model contained **9** internal characteristic features: `Land`, `Bldg`, `Assessed`, `County.Taxable`, `AdjustedSqFt`, `LotSize`, `Bed`, `Bath`, and `ActualSqFt`,as well as **7** amenity features: `college_nn1`, `school_nn3`, `school_nn4`, `school_nn5`, `pctTotalVacant`, `MedRent`, `MedHHInc`.
+
+Model summaries were all shown below. 
+
+```{r Model, echo=TRUE, message=FALSE, warning=FALSE, results ='asis'}
+## First model: All internal features, amenity features
+M1 <- lm(SalePrice ~ ., data = st_drop_geometry(model.miami.training) %>% 
+           dplyr::select(colnames(internal.feature.list), 
+                         colnames(amenity.feature.list)
+))
+
+stargazer(M1, type = "html", 
+          title = "Table 4.1.1 Summary Statistics of Model 1 ",
+          header = FALSE,
+          single.row = TRUE)
+
+## Second model: 
+M2 <- lm(SalePrice ~ ., data = st_drop_geometry(model.miami.training) %>% 
+           dplyr::select(# internal features
+                         SalePrice, Land, Bldg, Assessed, County.Taxable,
+                         AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                         # amenity features
+                         landmark_nn2, landmark_nn3, 
+                         hospital_nn1, hospital_nn3, hospital_nn4,
+                         college_nn1, school_nn3, school_nn4, school_nn5,
+                         pctTotalVacant, pctRenterOccupied, MedRent, MedHHInc) 
+)
+
+stargazer(M2, type = "html", 
+          title = "Table 4.1.2 Summary Statistics of Model 2 ",
+          header = FALSE,
+          single.row = TRUE)
+
+
+# Third Model
+M3 <- lm(SalePrice ~ ., data = st_drop_geometry(model.miami.training) %>% 
+             dplyr::select(# internal features
+               SalePrice, Land, Bldg, Assessed, County.Taxable,
+               AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+               # amenity features
+               college_nn1,
+               school_nn3, school_nn4, school_nn5,
+               pctTotalVacant, MedRent, MedHHInc) 
+)
+
+stargazer(M3, type = "html", 
+          title = "Table 4.1.3 Summary Statistics of Model 3 ",
+          header = FALSE,
+          single.row = TRUE)
+
+
+
+## Below is our baseline regression model
+m2.training <- M3
+
+```
+
+
+### 4.2 Training Set Summary Results
+
+The results of the regression on the training set are in the following table. The current model embraced 16 independent features and reached 0.992 R-square, indicating that 99% of the variance for `SalePrice` can be explained by this model.
+
+```{r Training, echo=TRUE, message=FALSE, warning=FALSE, results ='asis'}
+# 2. Table of model summary on my training set
+stargazer(m2.training, type = "html", 
+          title = "Table 4.2.1 Summary Statistics of Baseline Model on Training Set",
+          header = FALSE,
+          single.row = TRUE) 
+
+broom::glance(m2.training) %>%
+  kable(caption = 'Table 4.2.2 Summary of Model Evaluation Parameters') %>%
+  kable_styling("striped", full_width = F)
+
+```
+### 4.3 MAE, MAPE on Test Set
+
+The Mean Absolute Errors (MAE) and Mean Absolute Percent Errors (MAPE) are statistical measures of how accurate a forecast system is.Based on the following table, the MAE is 59645.31, the errors are accounted for 12.36%
+
+```{r MAE, echo=TRUE, message=FALSE, warning=FALSE}
+# 3. MAE, MAPE on my test set
+
+m2.miami.test <-
+  model.miami.test %>% 
+  mutate(Regression = "Baseline Regression",
+         SalePrice.Predict = predict(m2.training, newdata = model.miami.test),
+         SalePrice.Error = SalePrice - SalePrice.Predict,
+         SalePrice.AbsError = abs(SalePrice - SalePrice.Predict),
+         SalePrice.APE = (abs(SalePrice - SalePrice.Predict)) / SalePrice) %>%
+  filter(SalePrice < 5000000) 
+  
+test_GoodnessFit<-as.data.frame(cbind(mean(m2.miami.test$SalePrice.AbsError,na.rm = T),
+                                      mean(m2.miami.test$SalePrice.APE,na.rm = T)))
+colnames(test_GoodnessFit)<-c("Mean Absolute Errors (MAE)","MAPE")
+kable(test_GoodnessFit,
+      caption = 'Table RESULT 3. MAE and MAPE for Test Set') %>%
+  kable_styling("striped", full_width = F)
+
+```
+### 4.4 Cross-Validation
+
+This section conducted cross-validation to assess how our model would generalize to other independent data sets, in which we could flag problem of overfitting or feature selection bias. 
+
+Both a summary table and distribution plots of R-square, RMSE, and MAE in each of 100 fold are shown below.
+
+The variation of 100 folds can also be visualized with a histogram of across-fold MAE. Although most of the errors are clustering tightly together, some errors are scattered, indicating the inconsistency of the model prediction.
+
+```{r Cross-Validation, echo=TRUE, message=FALSE, warning=FALSE}
+# 4. Cross-Validation Test on Model 2
+## 4.1 use caret package cross-validation method
+fitControl <- caret:: trainControl(method = "cv", 
+                                   number = 100,
+                                   savePredictions = TRUE)
+
+set.seed(717)
+
+m2.cv <- 
+  caret::train(SalePrice ~ ., data = st_drop_geometry(miami.training) %>% 
+                 dplyr::select(# internal features
+                   SalePrice, Land, Bldg, Assessed, County.Taxable,
+                   AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                   # amenity features
+                   college_nn1,
+                   school_nn3, school_nn4, school_nn5,
+                   pctTotalVacant, MedRent, MedHHInc) ,
+               method = "lm", 
+               trControl = fitControl, 
+               na.action = na.pass)
+
+## 4.2 show RMSE, MAE, R^2
+kable(m2.cv$resample,
+          caption = 'Table RESULT 4. Cross-validation Test: Summary of RMSE, R Squared and MAE') %>%
+  kable_styling("striped", full_width = F)
+
+m2.cv$resample %>% 
+  pivot_longer(-Resample) %>% 
+  mutate(name = as.factor(name)) %>% 
+  ggplot(., aes(x = name, y = value, color = name)) +
+  geom_jitter(width = 0.1) +
+  facet_wrap(~name, ncol = 3, scales = "free") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(title = 'Cross-validation Test: Distribution of MAE, RMSE, R Squared\n',
+       caption = "Figure RESULT 4.1") +
+  plotTheme()
+
+
+ggplot(data = m2.cv$resample) +
+  geom_histogram(aes(x = m2.cv$resample$MAE), fill = 'orange') +
+  labs(title="Distribution of Cross-validation MAE",
+       subtitle = "K = 100\n",
+       caption = "Figure RESULT 4.2") +
+  xlab('MAE of Model 2') +
+  ylab('Count') +
+  plotTheme()
+  
+# If the model generalized well, the distribution of errors would cluster tightly together. 
+# Instead, this range of errors suggests the model predicts inconsistently, and would likely be unreliable for predicting houses that have not recently sold.
+
+```
+
+### 4.5 Plot Predicted Prices
+
+The Figure RESULT 5.1 below shows the predicted prices as a function of observed price. This plot indicates that our model can predict price perfectly since the regression line (shown in dark-blue) and the reference line (shown in orange) are completely overlapped, and almost all the house predictions are closely clustered along with the regression line. 
+
+```{r Predicted Price, echo=TRUE, message=FALSE, warning=FALSE}
+# 5. Plot predicted prices as a function of observed prices
+preds.train <- data.frame(pred   = predict(m2.training, model.miami.training),
+                          actual = model.miami.training$SalePrice,
+                          source = "Training Set")
+preds.test  <- data.frame(pred   = predict(m2.training,newdata = model.miami.test),
+                          actual = model.miami.test$SalePrice,
+                          source = "Test Set")
+preds <- rbind(preds.train, preds.test)
+
+## Overall Plotting
+ggplot(preds, aes(x = actual, y = pred, color = source)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "darkblue") +
+  geom_abline(color = "orange") +
+  coord_equal() +
+  theme_bw() +
+  labs(title = "Predicted Prices as a\nFunction of Observed Prices",
+       subtitle = 'Blue line is model regression line\nwhile orange line is reference line\n',
+       caption = 'Figure RESULT 5.1',
+       x = "Observed Prices",
+       y = "Predicted Prices") +
+  theme(
+    legend.position = "none"
+  ) +
+  plotTheme()
+
+ggplot(preds, aes(x = actual, y = pred, color = source)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "darkblue") +
+  geom_abline(color = "orange") +
+  coord_equal() +
+  theme_bw() +
+  facet_wrap(~source, ncol = 2) +
+  labs(title = "Predicted Prices as a Function of Observed Prices, by Sets",
+       subtitle = 'Blue line is model regression line while orange line is reference line\n',
+       caption = 'Figure RESULT 5.2',
+       x = "Observed Prices",
+       y = "Predicted Prices") +
+  theme(
+    legend.position = "none"
+  ) +
+  plotTheme()
+```
+
+### 4.6 Map of Test Set Residuals
+
+In this section, we leveraged three different tools to examine if prediction errors display certain spatial patterns, and accordingly to determine whether we need to add more spatial features in the existing model. 
+
+  1. **Mapping residuals**: In the map of the residuals on the test set, most of the errors are clustering in the Downtown Miami and Miami Beach area. There is no clear pattern of the error directions.
+
+  2. **Plotting spatial lags**: A spatial lag is a variable that averages the neighboring values of a location. The spatial lag of error plot shows that as home price errors increase, the nearby home price errors slightly decrease, indicating that our model errors are rarely spatially autocorrelated. 
+  
+  3. **Moran's I**: Another approach for measuring spatial autocorrelation is Moran's I. In this model Moran’s I is around 0.196, indicating a certain level of clustering on model errors. The frequency of all 999 randomly permuted I were plotted as a histogram with the Observed I indicated by the orange line (see Figure Result 6.3). That the observed I is higher than all of the 999 randomly generated I's provides visual confirmation of spatial autocorrelation despite being slight. This suggests that variation in price is likely related to the spatial process has been omitted from our current model. 
+
+Therefore, we thought it was worthy to include neighborhood features in the model for the further test. 
+
+
+```{r Residual, echo=TRUE, message=FALSE, warning=FALSE}
+# 6. Residual Exploration
+## 6.1 A map of residuals for test set
+palette.res <- c('#ff0000', '#ff7878', '#ffffff', '#74d680', '#378b29')
+map.res.test <- ggplot() + 
+  geom_sf(data = st_union(miami.neigh),fill = '#E5E5E5') +
+  geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+  geom_sf(data = m2.miami.test,aes(color = q5(SalePrice.Error)), show.legend = "point",size = 2) +
+  scale_color_manual(values = palette.res,
+                     labels = qBr(m2.miami.test,'SalePrice.Error'),
+                     name = "Residuals") +
+  labs(title = 'Map of residuals on test set\n',
+       caption = 'Figure RESULT 6.1') +
+  mapTheme() + 
+  plotTheme()
+map.res.test
+
+## 6.2 Spatial lag in errors: average errors in five nearest neighbors
+k_nearest_neighbors = 5
+
+# average errors in five nearest neighbors
+coords.test <- st_centroid(st_geometry(m2.miami.test), of_largest_polygon=TRUE)
+neighborList.test <- knn2nb(knearneigh(coords.test, k_nearest_neighbors))
+spatialWeights.test <- nb2listw(neighborList.test, style="W") 
+m2.miami.test$lagPriceError <- lag.listw(spatialWeights.test,m2.miami.test$SalePrice.Error)
+
+error.spatial.lag <- ggplot(m2.miami.test, aes(x = lagPriceError, y = SalePrice.Error)) +
+  geom_point(colour = "black") +
+  geom_smooth(method = "lm", se = FALSE, colour = "darkred") +
+  labs(title = "Error on Test Set as a function of the Spatial Lag of Price\n",
+       caption = "Figure RESULT 6.2",
+       x = "Spatial lag of errors (Mean error of 5 nearest neighbors)",
+       y = "Errors of Sale Price") +
+  plotTheme()
+
+error.spatial.lag
+
+## 6.3 Moran's I Test
+moranTest <- moran.mc(m2.miami.test$SalePrice.AbsError, 
+                      spatialWeights.test, nsim = 999)
+
+moran.plot <- ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
+  geom_histogram(binwidth = 0.01) +
+  geom_vline(aes(xintercept = moranTest$statistic), colour = "orange",size=1) +
+  scale_x_continuous(limits = c(-1, 1)) +
+  labs(title="Observed and permuted Moran's I",
+       subtitle= "Observed Moran's I in orange, I = 0.196",
+       x="Moran's I",
+       y="Count",
+       caption="Figure RESULT 6.3") +
+  plotTheme()
+
+moran.plot
+
+
+
+```
+
+### 4.7 Map of Predicted Prices on the Whole Dataset
+
+Applying the predictive model on the whole dataset, the distribution of sales price is shown in the map below. Sale prices are generally higher in Downtown Miami, Miami Beach and the North area. There is no significant difference between the pattern of the distribution of price predictions in the two datasets (`topredict` == 0 and `topredict` == 1). 
+
+```{r Whole map, echo=TRUE, message=FALSE, warning=FALSE}
+# 7. Map of predicted values for the whole dataset
+miami.sf$Predicted.Price<- predict(m2.training, newdata = miami.sf)
+
+feature <- c("toPredict = 0", "toPredict = 1")
+names(feature) <- c(0,1)
+
+map.predicted.price <- ggplot() + 
+  geom_sf(data = st_union(miami.neigh),fill = '#E5E5E5') +
+  geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+  geom_sf(data = st_centroid(miami.sf),aes(color = q5(Predicted.Price)),size = .5) +
+  scale_color_manual(values = palette,
+                     labels = qBr(miami.sf,'Predicted.Price'),
+                     name = "Price, $") +
+  facet_wrap(~as.factor(toPredict),
+             labeller = labeller(toPredict = feature)) +
+  labs(title = 'Map of Predicted Sale Price\n',
+       subtitle = '',
+       caption = 'Figure RESULT 7') +
+  mapTheme() + 
+  plotTheme()
+
+
+map.predicted.price
+```
+
+### 4.8 Map of MAPE by Neighborhood
+
+Indicated in the summary table as well as the choropleth map below, MAPE varies across neighborhoods (only 22 neighborhoods left in the test set). In the test set, the model exhibited larger MAPE in Downtown and North Miami.
+
+```{r MAPE, echo=TRUE, message=FALSE, warning=FALSE}
+# 8. Map of MAPE by neighborhood
+## 8.1 Statistic summary by neighborhood group
+nhood_sum <- m2.miami.test %>% 
+  group_by(LABEL) %>%
+  summarize(meanPrice = mean(SalePrice, na.rm = T),
+            meanPrediction = mean(SalePrice.Predict, na.rm = T),
+            meanMAE = mean(SalePrice.AbsError, na.rm = T),
+            meanMAPE = mean(SalePrice.APE, na.rm = T)) 
+
+nhood_sum %>%
+  st_drop_geometry %>%
+  arrange(desc(meanMAPE)) %>% 
+  kable(caption = 'Table RESULT 8. Map of MAPE by Neighborhood') %>% 
+  kable_styling("striped", full_width = F)
+
+## 8.2 Map of MAPE by neighborhood
+
+miami.neigh.sum <- miami.neigh %>%
+  left_join(st_drop_geometry(nhood_sum), by = "LABEL") %>%
+  mutate(meanMAPE.expanded = meanMAPE * 100)
+  
+            
+map.MAPE.nhood <- ggplot() + 
+  geom_sf(data = miami.neigh.sum,
+          aes(fill = q5(meanMAPE.expanded))) + 
+  geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+  scale_fill_manual(values = palette,
+                     labels = qBr(miami.neigh.sum,'meanMAPE.expanded'),
+                     name = "MAPE\n(timed by 100\nfor better display)") +
+  labs(title = 'Map of MAPE on Test Set, by Neighborhood\n',
+       subtitle = '',
+       caption = 'Figure RESULT 8') +
+  mapTheme() + 
+  plotTheme()
+
+map.MAPE.nhood
+
+```
+
+### 4.9 Plot MAPE by Neighborhood 
+
+This section plotted MAPE by neighborhood as a function of mean price by neighborhood. Neighborhoods with mean sale price below or around 500,000 have higher MAPE, while MAPE in neighborhoods with higher mean sale price is generally lower. This finding indicates that most errors occurred in the neighborhoods where house price was comparatively moderate. 
+
+```{r MAPE Scatter, echo=TRUE, message=FALSE, warning=FALSE}
+# 9. Scatter plot of MAPE by neighborhood as a function of mean price by neighborhood
+
+MAPE.nhood.plot <-ggplot()+
+  geom_point(data = nhood_sum, aes(x = meanPrice, y = meanMAPE)) +
+  stat_smooth(data = nhood_sum, aes(x = meanPrice, y = meanMAPE), method = "loess", se = FALSE, size = 1, colour="red") + 
+  labs(title = "MAPE by Neighborhood as a Function of\nMean Price by Neighborhood\n",
+       caption = 'Figure RESULT 9') +
+  xlab('Mean Price by Neighborhood') +
+  ylab('Mean MAPE by Neighborhood') +
+  plotTheme()
+
+MAPE.nhood.plot
+```
+
+### 4.10 Generalizability Examination 
+
+This section gathered Census data to test how well baseline model generalizes to different group contexts, such as race group and income level.
+
+#### 4.10.1 Context Group Building
+
+First of all, we selected four census variables to display the spatial pattern of each group:
+    1. Majority White vs. Majority Non-White: divided whether the proportion of white population is accounted for more than 50% of total population or not.
+    2. High Income vs. Low Income: divided whether the median household income in certain census tract is above or below the average level.
+    3. Majority Vacant vs. Majority Non-Vacant: divided whether the proportion of vacant unit is accounted for more than 50% of total vacant unit or not.
+    4. Majority Renter Occupied vs. Majority Non-Renter Occupied: divided whether the proportion of renter occupied units is accounted for more than 50% of total units or not.
+
+Based on the maps shown below, race group and income level have displayed the obvious spatial pattern, and thus, we determined to generalize our model on the two context groups.     
+
+```{r general, echo=TRUE, message=FALSE, warning=FALSE}
+
+# 10. Model generalizability on census data
+## 10.1 Group Plotting
+census <-   miami.training %>% # miami.training contains all features we used including census data and geometry information
+   mutate(raceContext = ifelse(pctWhite > .5, "Majority White", "Majority Non-White"),
+          incomeContext = ifelse(MedHHInc > mean(MedHHInc,na.rm = T), "High Income", "Low Income"),
+          vacantContext = ifelse(pctTotalVacant > .5, "Majority Vacant", "Majority Non-Vacant"),
+          pctRenterContext = ifelse(pctPoverty > .5, "Majority Renter Occupied", "Majority Non-Renter Occupied")) %>%
+  select(raceContext,incomeContext,vacantContext,pctRenterContext)
+
+
+census <- census %>%
+  st_transform(st_crs(tracts17))
+
+
+grid.arrange(ncol = 2,
+             ggplot() + 
+               geom_sf(data = st_union(miami.neigh), fill = '#E5E5E5') + 
+               geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+               geom_sf(data = na.omit(census), aes(color = raceContext),
+                       show.legend = "point", size= 1) +
+               scale_color_manual(values = c("#05A167", "#6897BB"), name="Race Context") +
+               labs(title = "Race Context of House\n",
+                    caption = 'Figure RESULT 10.1') +
+               mapTheme() + 
+               theme(legend.position="bottom") +
+               plotTheme(),
+             
+             ggplot() + 
+               geom_sf(data = st_union(miami.neigh), fill = '#E5E5E5') + 
+               geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+               geom_sf(data = na.omit(census), aes(color = incomeContext),
+                       show.legend = "point", size= 1) +
+               scale_fill_manual(values = c("#05A167", "#6897BB"), name="Income Context") +
+               labs(title = "Income Context of House\n",
+                    caption = 'Figure RESULT 10.2') +
+               mapTheme() + 
+               theme(legend.position="bottom") +
+                plotTheme())
+
+grid.arrange(ncol = 2,
+             ggplot() + 
+               geom_sf(data = st_union(miami.neigh), fill = '#E5E5E5') + 
+               geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+               geom_sf(data = na.omit(census), aes(color = vacantContext),
+                       show.legend = "point", size= 1) +
+               scale_color_manual(values = c("#05A167", "#6897bb"), name="Vacant Context") +
+               labs(title = "Vacant Context of House\n",
+                    caption = 'Figure RESULT 10.3') +
+               mapTheme() + 
+               theme(legend.position="bottom") +
+               plotTheme(),
+             ggplot() + 
+               geom_sf(data = st_union(miami.neigh), fill = '#E5E5E5') + 
+               geom_sf(data = st_union(miami.beach),fill = '#E5E5E5') +
+               geom_sf(data = na.omit(census), aes(color = pctRenterContext),
+                       show.legend = "point", size= 1) +
+               scale_fill_manual(values = c("#05A167", "#6897BB"), name="Renter Proportion Context") +
+               labs(title = "Renter Proportion Context\n",
+                    caption = 'Figure RESULT 10.4') +
+               mapTheme() + 
+               theme(legend.position="bottom") +
+                plotTheme())
+
+
+```
+
+#### 4.10.2 Model Modifying with Neighborhood Effects
+
+Existing findings have indicated that neighborhood could also be a potential feature for model building. Hence, this section built a new model called **Neighborhood Effects** model based on the baseline model by adding neighborhood feature `LABEL`.
+
+MAE, and MAPE of both regression models are shown below. The finding was not intuitive that the new model performed much better in terms of MAE but slightly worse in terms of MAPE. 
+
+Hence, it is imperative to further examine how well both models could be generalized in race context and income level context, and then to determine which model should be remained.  
+
+
+```{r Fixed Effect, echo=TRUE, message=FALSE, warning=FALSE}
+### Based on the group distribution, we decided to select race group and income group
+
+## 10.2 Neighborhood Fixed Effect
+### 10.2.1 Model building
+m2.nhood <- lm(SalePrice ~ ., data = as.data.frame(model.miami.training) %>% 
+     dplyr::select(# spatial features
+                   LABEL,
+                   # internal features
+                   SalePrice, Land, Bldg, Assessed, County.Taxable,
+                   AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                   # amenity features
+                   college_nn1,
+                   school_nn3, school_nn4, school_nn5,
+                   pctTotalVacant, MedRent, MedHHInc) 
+)
+
+m2.miami.test.nhood <-
+  model.miami.test %>% 
+  mutate(Regression = "Neighborhood Effects",
+         SalePrice.Predict = predict(m2.nhood, model.miami.test),
+         SalePrice.Error = SalePrice - SalePrice.Predict,
+         SalePrice.AbsError = abs(SalePrice - SalePrice.Predict),
+         SalePrice.APE = (abs(SalePrice - SalePrice.Predict)) / SalePrice) %>%
+  filter(SalePrice < 5000000)
+
+### 10.2.2. Model combination and comparison
+bothRegressions <- 
+  rbind(
+    dplyr::select(m2.miami.test, starts_with("SalePrice"), Regression, LABEL) ,
+    dplyr::select(m2.miami.test.nhood, starts_with("SalePrice"), Regression, LABEL) )
+
+st_drop_geometry(bothRegressions) %>%
+  gather(Variable, Value, -Regression, -LABEL) %>%
+  filter(Variable == "SalePrice.AbsError" | Variable == "SalePrice.APE") %>%
+  group_by(Regression, Variable) %>%
+  summarize(meanValue = mean(Value, na.rm = T)) %>%
+  spread(Variable, meanValue) %>%
+  kable(caption = 'Table RESULT 10.1.\nSummary of MAE, and MAPE by Regression Models') %>%
+  kable_styling("striped", full_width = F) 
+
+
+```
+
+#### 4.10.3 Generalizability on Context Groups
+
+Regardless of any context group, our new model with neighborhood features do not perform better than the baseline model in terms of MAPE. Hence, we determined to exclude neighborhood features in the model. 
+
+Despite higher MAPE in the Majority Non-White group, the baseline model is generalized well across context groups with MAPE close to the one generated on the test set (MAPE on test set is 12.362% for your reference).  
+
+```{r Generalizability in different groups, echo=TRUE, message=FALSE, warning=FALSE}
+
+### 10.2.3 Generalizability in Different Groups
+census <-   miami.training %>% # miami.training contains all features we used including census data and geometry information
+   mutate(raceContext = ifelse(pctWhite > .5, "Majority White", "Majority Non-White"),
+          incomeContext = ifelse(MedHHInc > mean(MedHHInc,na.rm = T), "High Income", "Low Income"),
+          vacantContext = ifelse(pctTotalVacant > .5, "Majority Vacant", "Majority Non-Vacant"),
+          pctRenterContext = ifelse(pctPoverty > .5, "Majority Renter Occupied", "Majority Non-Renter Occupied")) %>%
+  select(raceContext,incomeContext,vacantContext,pctRenterContext)
+
+race.group <- st_join(bothRegressions, census) %>% 
+  group_by(Regression, raceContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(SalePrice.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(raceContext, mean.MAPE) %>%
+  kable(caption = "Table  RESULT 10.2.\nTest set MAPE by Neighborhood Racial Context") %>% 
+  kable_styling("striped", full_width = F)
+
+race.group
+
+income.group <- st_join(bothRegressions, census) %>% 
+  group_by(Regression, incomeContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(SalePrice.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(incomeContext, mean.MAPE) %>%
+  kable(caption  = " RESULT 10.3.\nTest set MAPE by Neighborhood Income Context") %>% 
+  kable_styling("striped", full_width = F)
+
+income.group
+```
+
+
+
+
+#### 4.10.4 Final Model 
+
+Eventually, we settled down with a model built with the original 16 features used in the baseline model, and conducted prediction on the secret data set. Summary statistics of predicted sale price is attached below. 
+
+###### Table RESULT 10.4 Summary Statistics
+|N|Mean| St.Dev.|Min.| Max. |
+:----:|:----:|:---:|:----:|:---:|
+|876|1044617 |1217748|69398   | 13970170 |
+
+```{r Final Model, echo=TRUE, message=FALSE, warning=FALSE}
+
+MODEL <- lm(SalePrice ~ ., data = as.data.frame(miami.training) %>% 
+                 dplyr::select(
+   
+                   # internal features
+                   SalePrice, Land, Bldg, Assessed, County.Taxable,
+                   AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                   # amenity features
+                   college_nn1,
+                   school_nn3, school_nn4, school_nn5,
+                   pctTotalVacant, MedRent, MedHHInc) 
+)
+
+
+secret_data <- miami.test%>% 
+                 dplyr::select(Folio,
+                   # internal features
+                   SalePrice, Land, Bldg, Assessed, County.Taxable,
+                   AdjustedSqFt, LotSize, Bed,Bath, ActualSqFt, 
+                   # amenity features
+                   college_nn1,
+                   school_nn3, school_nn4, school_nn5,
+                   pctTotalVacant, MedRent, MedHHInc)
+MedRent.no.na <- mean(secret_data$MedRent,na.rm = TRUE)
+secret_data[is.na(secret_data)] <- MedRent.no.na
+
+
+secret_preds <- predict(MODEL, newdata = secret_data)
+output_preds <- data.frame(prediction = secret_preds, Folio = secret_data$Folio, team_name = "MySun") 
+
+# write.csv(output_preds, "MySun.csv")
+
+
+```
+
+
+## V. Discussion
+
+* **Accuracy and Generalizability**: Overall, the predictive model is **effective** in terms of predicting sale price in the City of Miami and Miami Beach. The model successfully captured more than **99%** of variation in prices we were required to predict that indicated a big victory! For the sake of accuracy, the MAE on the test set is less than 60k with 12.36% MAPE. As for the generalizability, MAPEs are no larger than 13% regardless of context groups to which the model was applied. A potential weakness of the model should be addressed is if the generalizability test result was overestimated or manipulated since proportion of white population and median household income were both features in the model. 
+
+* **Feature Effect**: The model is built with **9** internal characteristic features: `Land`, `Bldg`, `Assessed`, `County.Taxable`, `AdjustedSqFt`, `LotSize`, `Bed`, `Bath`, and `ActualSqFt`, **4** amenity features: `college_nn1`, `school_nn3`, `school_nn4`, and`school_nn5`, and **3** spatial features`pctTotalVacant`, `MedRent`, and `MedHHInc`. The highlight of this model is including **vacant unit proportion** on census tract level as one of the features to predict sale price. We regarded it as an interesting addition to display the spatial environment the house unit is located at. The accessibility of **education resources** is an easy-ignored but powerful feature to show how amenities affect the local house price. Rather than only focus on the entertainment demand, we cared more about if the local residents’requirements on education have been refilled. Evidence has indicated that such a consideration is worthy. Secondly, it seems counterintuitive that we did not include the distance to coastline as a feature in the model, but we think proximity to water is just the surface outcome; it is unable to explain why high price is cluttered inside the City of Miami boundary despite being far from water. Besides, although we eventually excluded neighborhood features from the model, this spatial pattern still deserves attention when it comes to larger dataset size. Additionally, although we included far more amenity features in the initial stage, such as the proximity to landmarks, hotels, shopping malls for entertainment, the proximity to hospitals for healthcare service, and the exposure to certain crime, those features were eventually excluded from the model based on the series of rigorous model evaluation. However, we still believe it is worthy taking those features into consideration and they might be helpful when being used in other regression models.
+
+* **Errors and Spatial Variations**: Generally speaking, larger MAEs occurred in the Downtown Miami, Miami Beach area and north region of Miami City, while the model performed better in the rest of areas. One guess is potential spatial features that are directly related to the three areas have been somehow missed out. But we still feel confident about the model based on the examinations above.
+
+
+
+## VI. Conclusion
+
+If all the model examination and interpretation have been conducted correctly as shown above, we would like to **recommend** this model to Zillow as it incorporates some Miami’s local intelligent features that were absent in the previous models and performed comparatively well on either accuracy or generalizability. 
+
+To further reduce the error rate, more amenity features such as local restaurants and bars (data unavailable so far), financial related agencies, public transportation and spatial features such as zoning should be taken into consideration. And more context studies on Miami downtown and north region are also highly needed since we would like to extract some similarities between the two regions that would be the magic ingredients of cooking models in the future. 
+
+
+
+
+
